@@ -36,11 +36,10 @@ def extract_fileid(file_path: str) -> str:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--data',
+        '--data_path',
         type=str,
-        nargs='+',
         required=True,
-        help="List of folder paths to video data"
+        help="Path to metadata file of the video dataset"
     )
     parser.add_argument(
         '--output_file',
@@ -76,6 +75,11 @@ if __name__ == "__main__":
             vision_tower_aux.load_model()
 
     model = model.to(device)
+    logging.info(f"Model architecture\n{model}")
+    logging.info("Trainable layers")
+    for n, t in model.parameters():
+        if t.requires_grad:
+            logging.info(f'Layer name: {n}')
     # For inference on multiple GPUs, wrap with DataParallel if more than one GPU is available.
     # if torch.cuda.device_count() > 1:
     #     logging.info(f'Using {torch.cuda.device_count()} GPUs with DataParallel')
@@ -89,23 +93,43 @@ if __name__ == "__main__":
         image_processors.append(vision_tower_aux.image_processor)
     
 
-    folder_paths: List[str] = args.data
-    entube_dataset = EngagementDataset(folder_paths, image_processors)
+    engagement_dataset = EngagementDataset(args.data_path, image_processors, device)
     dataloader = DataLoader(
-        entube_dataset, 
+        engagement_dataset, 
         batch_size=args.batch_size, 
         collate_fn=collate_fn,
     )
+    # AdamW optimizer for training
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=1e-4,
+        weight_decay=1e-2
+    )
+    loss_fnc = torch.nn.CrossEntropyLoss()
 
     # model.eval()
+    model.train()
+    num_epochs: int = 2
+    logging_steps: int = 5
+    global_steps: int = 0
+    for epoch in range(num_epochs):
 
-    for batch_idx, (videos, image_sizes, file_names) in enumerate(dataloader):
-        logging.info(f'Processing batch {batch_idx + 1}/{len(dataloader)}')
-        assert isinstance(videos, list), "List of videos features for each processor (vision encoder)"
-        assert isinstance(videos[0], list) or isinstance(videos[0], torch.Tensor), "List of videos in the batch"
-        # tensor(num_reduced_frames, len=576, hidden_dim=1152/1536) image_aux_features_list[num_processors]
+        for batch_idx, (filenames, videos, image_sizes, labels) in enumerate(dataloader):
+            logging.info(f'Processing batch {batch_idx + 1}/{len(dataloader)}')
+            assert isinstance(videos, list), "List of videos features for each processor (vision encoder)"
+            assert isinstance(videos[0], list) or isinstance(videos[0], torch.Tensor), "List of videos in the batch"
+            # tensor(num_reduced_frames, len=576, hidden_dim=1152/1536) image_aux_features_list[num_processors]
 
-        pred_logits = model(videos, image_sizes)
+            optimizer.zero_grad()
+            pred_logits = model(videos, image_sizes)
+            loss = loss_fnc(pred_logits, labels)
+            loss.backward()
+            optimizer.step()
+            global_steps += 1
+
+            if global_steps % logging_steps == 0:
+                logging.info(f'Epoch {epoch + 1}/{num_epochs}, global step {global_steps}: loss={loss.item()}')
+
 
         # tensor_siglip = image_aux_features_list[0].to('cpu')
         # tensor_dino = image_aux_features_list[1].to('cpu')

@@ -109,3 +109,6 @@ def process_video_frames(
         video[i] = torch.cat(video[i], dim=0)
 
     return video, image_sizes
+
+def extract_filename(file_path: str) -> str:
+    return file_path.split('/')[-1].split('.')[0]
