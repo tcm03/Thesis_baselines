@@ -17,6 +17,8 @@ from torch.utils.data import Dataset, DataLoader
 from transformers import BaseImageProcessor
 from constants import *
 
+from transformers import get_cosine_schedule_with_warmup
+
 # import annotation.utils (which imports decord) after torch to avoid bug
 import sys
 from pathlib import Path
@@ -30,6 +32,20 @@ logging.basicConfig(
     format="%(asctime)s - %(filename)s:%(lineno)d - %(funcName)s - %(levelname)s - %(message)s"
 )
 
+def load_model(model, model_path):
+    pretrained_state_dict = torch.load(model_path, map_location = 'cpu')
+    model_state_dict = model.state_dict()
+    for layer_name in model_state_dict.keys():
+        if "vision_tower" in layer_name:
+            # skip manual loading of vision encoders
+            continue
+        for pretrained_layer_name in pretrained_state_dict.keys():
+            if layer_name in pretrained_layer_name:
+                model_state_dict[layer_name] = pretrained_state_dict[pretrained_layer_name]
+                break
+            
+    model.load_state_dict(model_state_dict)
+
 def train(args):
     # Set up device (and log it)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -37,6 +53,7 @@ def train(args):
 
     cambrianConfig = CambrianConfig.from_json_file(args.config_file)
     model = CambrianMeta(cambrianConfig)
+    load_model(model, args.model_path)
 
     for vision_tower_aux in model.vision_tower_aux_list:
         if not vision_tower_aux.is_loaded:
@@ -78,14 +95,22 @@ def train(args):
     # AdamW optimizer for training
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=1e-4,
-        weight_decay=1e-2
+        lr=3e-6,         # Learning rate
+        weight_decay=0.0 # Weight decay
     )
     loss_fnc = torch.nn.CrossEntropyLoss()
 
     # model.eval()
     model.train()
     num_epochs: int = 2
+    num_training_steps = len(dataloader) * num_epochs
+    num_warmup_steps = int(0.03 * num_training_steps)  # 3% of training steps
+    scheduler = get_cosine_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=num_warmup_steps,
+        num_training_steps=num_training_steps
+    )   
+
     logging_steps: int = 1
     global_steps: int = 0
     for epoch in range(num_epochs):
@@ -111,6 +136,7 @@ def train(args):
             logging.info(f"Global step: {global_steps}, pred_logits: {pred_logits}, labels: {labels}, gradient norm: {total_norm:.4f}")
 
             optimizer.step()
+            scheduler.step()
             global_steps += 1
 
             if global_steps % logging_steps == 0:
@@ -154,10 +180,22 @@ if __name__ == "__main__":
         help="Path to video dataset"
     )
     parser.add_argument(
-        '--json_path',
+        '--train_path',
         type=str,
         required=True,
-        help="Path to metadata file of the video dataset"
+        help="Path to metadata file of the training video dataset"
+    )
+    parser.add_argument(
+        '--eval_path',
+        type=str,
+        required=True,
+        help="Path to metadata file of the evaluation video dataset"
+    )
+    parser.add_argument(
+        '--model_path',
+        type=str,
+        required=True,
+        help="Path to the model checkpoint"
     )
     parser.add_argument(
         '--output_file',
