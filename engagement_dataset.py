@@ -27,8 +27,9 @@ class DatasetItem:
 class EngagementDataset(Dataset):
     
     def __init__(
-        self,   
+        self,
         data_path: str,
+        json_path: str,
         image_processors: List[BaseImageProcessor],
         device: str
     ) -> None:
@@ -36,10 +37,10 @@ class EngagementDataset(Dataset):
         self.image_processors = image_processors
         self.device = device
 
-        with open(data_path, 'r') as f:
+        with open(json_path, 'r') as f:
             json_data = json.load(f)
             for item in json_data:
-                video_path = item["video"]
+                video_path = os.path.join(data_path, item["video"])
                 label = int(item["label"])
                 filename = extract_filename(video_path)
                 self.data.append((filename, video_path, label))
@@ -49,9 +50,11 @@ class EngagementDataset(Dataset):
 
     def __getitem__(self, idx):
         video, image_size = process_video_frames(self.data[idx][1], self.image_processors)
-        video = video.to(self.device)
+        # video: List[torch.Size([60, 3, 384, 384]), torch.Size([60, 3, 378, 378])]
+        for video_aux in video:
+            video_aux = video_aux.to(self.device)
         filename = self.data[idx][0]
-        label = torch.tensor([self.data[idx][2]], dtype=torch.int32, device=self.device)
+        label = torch.tensor([self.data[idx][2]], dtype=torch.long, device=self.device)
         return DatasetItem(filename, video, image_size, label)
 
 def collate_fn(batch):
@@ -69,10 +72,10 @@ def collate_fn(batch):
     assert isinstance(batch, list) or isinstance(batch, tuple)
     assert all(isinstance(item, DatasetItem) for item in batch)
 
-    image_sizes = (item.image_size for item in batch)
-    batch_videos = (item.video_tensor for item in batch)
-    filenames = (item.file_name for item in batch)
-    labels = torch.cat([item.label for item in batch], dtype=torch.int32, device=batch[0].label.device)
+    image_sizes = tuple([item.image_size for item in batch])
+    batch_videos = tuple([item.video_tensor for item in batch])
+    filenames = tuple([item.file_name for item in batch])
+    labels = torch.cat([item.label for item in batch], dim=0)
     tmp_batch_videos = []
     for i, videos in enumerate(zip(*batch_videos)):
         tmp = []

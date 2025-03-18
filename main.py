@@ -20,7 +20,6 @@ from constants import *
 import sys
 from pathlib import Path
 sys.path.append(str(Path.cwd()))
-from annotation.utils import get_optimal_workers
 import torch.multiprocessing as mp
 from resource_logging import measure_resource_usage, MeasureResourceUsage
 
@@ -37,6 +36,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--data_path',
+        type=str,
+        required=True,
+        help="Path to video dataset"
+    )
+    parser.add_argument(
+        '--json_path',
         type=str,
         required=True,
         help="Path to metadata file of the video dataset"
@@ -75,9 +80,14 @@ if __name__ == "__main__":
             vision_tower_aux.load_model()
 
     model = model.to(device)
-    logging.info(f"Model architecture\n{model}")
+    for n, t in model.named_parameters():
+        if "last_fc" in n:
+            t.requires_grad = True
+        else:
+            t.requires_grad = False
+
     logging.info("Trainable layers")
-    for n, t in model.parameters():
+    for n, t in model.named_parameters():
         if t.requires_grad:
             logging.info(f'Layer name: {n}')
     # For inference on multiple GPUs, wrap with DataParallel if more than one GPU is available.
@@ -93,7 +103,7 @@ if __name__ == "__main__":
         image_processors.append(vision_tower_aux.image_processor)
     
 
-    engagement_dataset = EngagementDataset(args.data_path, image_processors, device)
+    engagement_dataset = EngagementDataset(args.data_path, args.json_path, image_processors, device)
     dataloader = DataLoader(
         engagement_dataset, 
         batch_size=args.batch_size, 
@@ -110,7 +120,7 @@ if __name__ == "__main__":
     # model.eval()
     model.train()
     num_epochs: int = 2
-    logging_steps: int = 5
+    logging_steps: int = 1
     global_steps: int = 0
     for epoch in range(num_epochs):
 
@@ -118,12 +128,22 @@ if __name__ == "__main__":
             logging.info(f'Processing batch {batch_idx + 1}/{len(dataloader)}')
             assert isinstance(videos, list), "List of videos features for each processor (vision encoder)"
             assert isinstance(videos[0], list) or isinstance(videos[0], torch.Tensor), "List of videos in the batch"
+            assert isinstance(image_sizes, list) or isinstance(image_sizes, tuple), "List/Tuple of frame sizes of videos in the batch"
             # tensor(num_reduced_frames, len=576, hidden_dim=1152/1536) image_aux_features_list[num_processors]
 
             optimizer.zero_grad()
             pred_logits = model(videos, image_sizes)
             loss = loss_fnc(pred_logits, labels)
             loss.backward()
+
+            total_norm = 0.0
+            for p in model.parameters():
+                if p.grad is not None:
+                    param_norm = p.grad.detach().data.norm(2)
+                    total_norm += param_norm.item() ** 2
+            total_norm = total_norm ** 0.5
+            logging.info(f"Global step: {global_steps}, pred_logits: {pred_logits}, labels: {labels}, gradient norm: {total_norm:.4f}")
+
             optimizer.step()
             global_steps += 1
 

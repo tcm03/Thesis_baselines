@@ -98,10 +98,10 @@ def process_video_frames(
             img = vr[frame_index].asnumpy()
             sub_videos.append(img)
         sub_videos = np.stack(sub_videos) # shape: (num_frames, height, width, channels)
-        logging.info(f"Before process_images, sub_videos.dtype: {sub_videos.dtype}")
+        # logging.info(f"Before process_images, sub_videos.dtype: {sub_videos.dtype}")
         sub_videos = process_images(sub_videos, image_processors)
         assert len(sub_videos) == len(video)
-        logging.info(f"sub_videos[0] dtype: {sub_videos[0].dtype}")
+        # logging.info(f"sub_videos[0] dtype: {sub_videos[0].dtype}")
         for j, sub_video in enumerate(sub_videos):
             video[j].append(sub_video)
 

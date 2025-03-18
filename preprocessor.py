@@ -108,11 +108,11 @@ class CambrianMeta(nn.Module):
         self.vision_tower_aux_list = nn.ModuleList(build_vision_tower_aux_list(
             config, delay_load=True
         ))
-        self.mm_projector = nn.Sequential(
-            nn.Linear(vision_hidden_size * num_query_group, config.hidden_size), # 3584
-            nn.GELU(),
-            nn.Linear(config.hidden_size, config.hidden_size), # 3584
-        )
+#        self.mm_projector = nn.Sequential(
+#            nn.Linear(vision_hidden_size * num_query_group, config.hidden_size), # 3584
+#            nn.GELU(),
+#            nn.Linear(config.hidden_size, config.hidden_size), # 3584
+#        )
 
         image_token_len = config.image_token_len # 144
         vision_tower_aux_token_len_list = (
@@ -188,20 +188,20 @@ class CambrianMeta(nn.Module):
             torch.randn((num_query_group, vision_hidden_size), dtype=self.dtype)
         )
 
-        self.image_newline = nn.Parameter(
-            torch.empty(config.hidden_size, dtype=self.dtype)
-        )
+#        self.image_newline = nn.Parameter(
+#            torch.empty(config.hidden_size, dtype=self.dtype)
+#        )
 
-        self.frame_pos = torch.stack(
-            [
-                1
-                / torch.pow(
-                    torch.tensor(10000),
-                    torch.tensor(2 * (hid_j // 2) / config.hidden_size),
-                )
-                for hid_j in range(config.hidden_size)
-            ]
-        )
+#        self.frame_pos = torch.stack(
+#            [
+#                1
+#                / torch.pow(
+#                    torch.tensor(10000),
+#                    torch.tensor(2 * (hid_j // 2) / config.hidden_size),
+#                )
+#                for hid_j in range(config.hidden_size)
+#            ]
+#        )
 
         self.pad_num_frames = 60
         self.num_engagement_labels = 3
@@ -315,14 +315,11 @@ class CambrianMeta(nn.Module):
     
     def encode_images(self, image_aux_list, encode_type=None):
         vision_tower_aux_list = self.vision_tower_aux_list
-        logging.info('vision_tower_aux_list[0] device: {}'.format(vision_tower_aux_list[0].device))
-        logging.info('vision_tower_aux_list[0] dtype: {}'.format(vision_tower_aux_list[0].dtype))
         image_aux_features_list = []
         chunk_size = 64
         if encode_type == "dino":
             # print(f'@tcm: In CambrianMeta.encode_images(): dinov2')
             image_aux = image_aux_list[-1] # concatenated batch videos tensor for DINOv2: [# frames, 3, 378, 378]
-            logging.info(f'image_aux dtype: {image_aux.dtype}')
             vision_tower_aux = vision_tower_aux_list[-1]
             if image_aux.shape[0] > chunk_size:
                 image_aux_features_chunks = []
@@ -340,7 +337,6 @@ class CambrianMeta(nn.Module):
         elif encode_type == "siglip":
             # print(f'@tcm: In CambrianMeta.encode_images(): siglip')
             image_aux = image_aux_list[0]
-            logging.info(f'image_aux dtype: {image_aux.dtype}')
             vision_tower_aux = vision_tower_aux_list[0]
             if image_aux.shape[0] > chunk_size:
                 image_aux_features_chunks = []
@@ -726,6 +722,8 @@ class CambrianMeta(nn.Module):
                 cur_hidden_size = cur_frames_features.shape[2]
                 pad = torch.zeros((self.pad_num_frames - cur_frames_features.shape[0], cur_seq_len, cur_hidden_size), dtype=dtype)
                 cur_frames_features = torch.cat([cur_frames_features, pad], dim=0)
+            elif cur_frames_features.shape[0] > self.pad_num_frames:
+                cur_frames_features = cur_frames_features[:self.pad_num_frames]
             cur_frames_features = cur_frames_features.flatten(0, 2)
             final_image_features_list.append(cur_frames_features)
         final_image_features_batch = torch.stack(final_image_features_list, dim=0) # [batch size, 60 * 144 * 1024]
