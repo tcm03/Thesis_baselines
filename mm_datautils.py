@@ -110,5 +110,4 @@ def process_video_frames(
 
     return video, image_sizes
 
-def extract_filename(file_path: str) -> str:
-    return file_path.split('/')[-1].split('.')[0]
+

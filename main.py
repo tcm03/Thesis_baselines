@@ -6,6 +6,7 @@ import os
 import argparse
 from typing import List, Dict
 from mm_datautils import process_video_frames
+from utils import *
 from preprocessor import CambrianConfig, CambrianMeta
 from safetensors.torch import save_file
 from collections import defaultdict
@@ -29,45 +30,7 @@ logging.basicConfig(
     format="%(asctime)s - %(filename)s:%(lineno)d - %(funcName)s - %(levelname)s - %(message)s"
 )
 
-def extract_fileid(file_path: str) -> str:
-    return file_path.split('.')[0]
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        '--data_path',
-        type=str,
-        required=True,
-        help="Path to video dataset"
-    )
-    parser.add_argument(
-        '--json_path',
-        type=str,
-        required=True,
-        help="Path to metadata file of the video dataset"
-    )
-    parser.add_argument(
-        '--output_file',
-        type = str,
-        default = 'entube_tensors.safetensors',
-        help = 'Safetensor file to store embeddings of EnTube dataset by vision encoders'
-    )
-    parser.add_argument(
-        '--config_file',
-        type = str,
-        default = 'config.json',
-        help = 'Path to configuration file of encoders parameters'
-    )
-    parser.add_argument(
-        '--batch_size',
-        type=int,
-        default=1,
-        help='Batch size for inference (global batch size, will be split across GPUs)'
-    )
-    args = parser.parse_args()
-    os.makedirs(SAFETENSORS_PATH, exist_ok=True)
-    # mp.set_start_method('spawn')
-
+def train(args):
     # Set up device (and log it)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     logging.info(f'Using device: {device}')
@@ -86,6 +49,7 @@ if __name__ == "__main__":
         else:
             t.requires_grad = False
 
+    logging.info(f"Model state dict\n{model.state_dict()}")
     logging.info("Trainable layers")
     for n, t in model.named_parameters():
         if t.requires_grad:
@@ -178,3 +142,41 @@ if __name__ == "__main__":
         #         logging.info(f"Safetensors file '{safetensors_file_path}' deleted successfully.")
         #     except OSError as e:
         #         logging.error(f"Error deleting file '{safetensors_file_path}': {e}")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--data_path',
+        type=str,
+        required=True,
+        help="Path to video dataset"
+    )
+    parser.add_argument(
+        '--json_path',
+        type=str,
+        required=True,
+        help="Path to metadata file of the video dataset"
+    )
+    parser.add_argument(
+        '--output_file',
+        type = str,
+        default = 'entube_tensors.safetensors',
+        help = 'Safetensor file to store embeddings of EnTube dataset by vision encoders'
+    )
+    parser.add_argument(
+        '--config_file',
+        type = str,
+        default = 'config.json',
+        help = 'Path to configuration file of encoders parameters'
+    )
+    parser.add_argument(
+        '--batch_size',
+        type=int,
+        default=1,
+        help='Batch size for inference (global batch size, will be split across GPUs)'
+    )
+    args = parser.parse_args()
+    os.makedirs(SAFETENSORS_PATH, exist_ok=True)
+    # mp.set_start_method('spawn')
+
+    train(args)

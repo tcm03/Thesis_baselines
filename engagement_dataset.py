@@ -3,7 +3,8 @@ from torch.utils.data import Dataset
 from typing import List, Tuple
 import os
 import json
-from mm_datautils import process_video_frames, extract_filename
+from mm_datautils import process_video_frames
+from utils import extract_filename
 from transformers import BaseImageProcessor
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from resource_logging import measure_resource_usage, MeasureResourceUsage
