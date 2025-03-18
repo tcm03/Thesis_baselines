@@ -49,7 +49,9 @@ def train(args):
         else:
             t.requires_grad = False
 
-    logging.info(f"Model state dict\n{model.state_dict()}")
+    logging.info(f"Model state dict")
+    for k, v in model.state_dict().items():
+        logging.info(f"{k}: {v.size()}")
     logging.info("Trainable layers")
     for n, t in model.named_parameters():
         if t.requires_grad:
