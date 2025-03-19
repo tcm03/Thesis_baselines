@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.init as init
 from vision_encoders.builder import build_vision_tower_aux_list
 from vision_sampler import VisionTokenSampler
 from transformers import Qwen2Config
@@ -205,7 +206,33 @@ class CambrianMeta(nn.Module):
 
         self.pad_num_frames = 60
         self.num_engagement_labels = 3
-        self.last_fc = nn.Linear(self.pad_num_frames * image_token_len * vision_hidden_size, self.num_engagement_labels)
+        # self.last_fc = nn.Linear(self.pad_num_frames * image_token_len * vision_hidden_size, self.num_engagement_labels)
+        self.fc_1 = nn.Linear(self.pad_num_frames * image_token_len * vision_hidden_size, 128)
+        self.bn_1 = nn.BatchNorm1d(128)
+        self.fc_2 = nn.Linear(128, 32)
+        self.bn_2 = nn.BatchNorm1d(32)
+        self.fc_3 = nn.Linear(32, self.num_engagement_labels)
+        self.bn_3 = nn.BatchNorm1d(self.num_engagement_labels)
+
+        self.init_weights()
+
+    def init_weights(self):
+        init.xavier_uniform_(self.fc_1.weight)
+        if self.fc_1.bias is not None:
+            init.zeros_(self.fc_1.bias)
+        init.xavier_uniform_(self.fc_2.weight)
+        if self.fc_2.bias is not None:
+            init.zeros_(self.fc_2.bias)
+        init.xavier_uniform_(self.fc_3.weight)
+        if self.fc_3.bias is not None:
+            init.zeros_(self.fc_3.bias)
+        # Initialize batch_norm layer
+        init.ones_(self.bn_1.weight)
+        init.zeros_(self.bn_1.bias)
+        init.ones_(self.bn_2.weight)
+        init.zeros_(self.bn_2.bias)
+        init.ones_(self.bn_3.weight)
+        init.zeros_(self.bn_3.bias)
 
     def get_frame_pos(self, time_range):
         frame_pos = self.frame_pos.reshape(1, -1) * time_range.reshape(-1, 1).to(
@@ -222,7 +249,7 @@ class CambrianMeta(nn.Module):
         vision_tower_aux_feature_rearranged_list = []
         vision_tower_aux_attention_masks_rearranged_list = []
         bs = vision_tower_aux_feature_list[0].shape[0]
-        logging.info(f"In rearrange_vision_tower_features_inference, bs={bs}, len(image_sizes)={len(image_sizes)}, image_sizes[0]={image_sizes[0]}")
+        # logging.info(f"In rearrange_vision_tower_features_inference, bs={bs}, len(image_sizes)={len(image_sizes)}, image_sizes[0]={image_sizes[0]}")
         for vision_tower_aux_feature in vision_tower_aux_feature_list:
             aux_height = aux_width = int(vision_tower_aux_feature.shape[1] ** 0.5)
             assert (aux_height // query_side_len) * query_side_len == aux_height
@@ -497,8 +524,8 @@ class CambrianMeta(nn.Module):
         vision_tower_aux_list = self.vision_tower_aux_list
         image_aux_list = images
 
-        for i, image in enumerate(image_aux_list[0]):
-            debug_tensor(f'image_aux_list[0][{i}]', image_aux_list[0][i])        
+#        for i, image in enumerate(image_aux_list[0]):
+#            debug_tensor(f'image_aux_list[0][{i}]', image_aux_list[0][i])        
         
         split_sizes_ori = [
             1 if image.ndim == 3 else image.shape[0] for image in image_aux_list[0]
@@ -557,7 +584,7 @@ class CambrianMeta(nn.Module):
 
         frame_sizes = []
         # logging.info(f'image_sizes: {image_sizes}')
-        # logging.info(f'split_sizes: {split_sizes}')
+        logging.info(f'In prepare_mm_features: split_sizes: {split_sizes}')
         for i in range(len(image_sizes)):
             for j in range(split_sizes[i]):
                 frame_sizes.append(image_sizes[i])
@@ -720,7 +747,9 @@ class CambrianMeta(nn.Module):
             if cur_frames_features.shape[0] < self.pad_num_frames:
                 cur_seq_len = cur_frames_features.shape[1]
                 cur_hidden_size = cur_frames_features.shape[2]
-                pad = torch.zeros((self.pad_num_frames - cur_frames_features.shape[0], cur_seq_len, cur_hidden_size), dtype=dtype)
+                pad = torch.zeros((self.pad_num_frames - cur_frames_features.shape[0], cur_seq_len, cur_hidden_size), dtype=dtype, device=self.vision_query.device)
+#                logging.info(f"debug: cur_frames_features.device: {cur_frames_features.device}")
+#                logging.info(f"debug: pad.device: {pad.device}")
                 cur_frames_features = torch.cat([cur_frames_features, pad], dim=0)
             elif cur_frames_features.shape[0] > self.pad_num_frames:
                 cur_frames_features = cur_frames_features[:self.pad_num_frames]
@@ -1004,6 +1033,11 @@ class CambrianMeta(nn.Module):
             images,
             image_sizes,
         )
-        features_batch_logits = self.last_fc(image_features_batch)
-        return features_batch_logits
+        o1 = self.fc_1(image_features_batch)
+        o1 = self.bn_1(o1)
+        o2 = self.fc_2(o1)
+        o2 = self.bn_2(o2)
+        o3 = self.fc_3(o2)
+        o3 = self.bn_3(o3)
+        return o3
         

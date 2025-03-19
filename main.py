@@ -18,6 +18,7 @@ from transformers import BaseImageProcessor
 from constants import *
 
 from transformers import get_cosine_schedule_with_warmup
+from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
 # import annotation.utils (which imports decord) after torch to avoid bug
 import sys
@@ -35,15 +36,20 @@ logging.basicConfig(
 def load_model(model, model_path):
     pretrained_state_dict = torch.load(model_path, map_location = 'cpu')
     model_state_dict = model.state_dict()
+    logging.info("Initializing layers...")
     for layer_name in model_state_dict.keys():
         if "vision_tower" in layer_name:
             # skip manual loading of vision encoders
             continue
+        load_pretrained = False
         for pretrained_layer_name in pretrained_state_dict.keys():
             if layer_name in pretrained_layer_name:
+                logging.info(f"Load {layer_name}")
                 model_state_dict[layer_name] = pretrained_state_dict[pretrained_layer_name]
+                load_pretrained = True
                 break
-            
+        if load_pretrained is False:
+            logging.info(f"Skip {layer_name}")
     model.load_state_dict(model_state_dict)
 
 def train(args):
@@ -61,14 +67,16 @@ def train(args):
 
     model = model.to(device)
     for n, t in model.named_parameters():
-        if "last_fc" in n:
+        if "fc_" in n:
+            t.requires_grad = True
+        elif "bn_" in n:
             t.requires_grad = True
         else:
             t.requires_grad = False
 
-    logging.info(f"Model state dict")
-    for k, v in model.state_dict().items():
-        logging.info(f"{k}: {v.size()}")
+#    logging.info(f"Model state dict")
+#    for k, v in model.state_dict().items():
+#        logging.info(f"{k}: {v.size()}")
     logging.info("Trainable layers")
     for n, t in model.named_parameters():
         if t.requires_grad:
@@ -86,24 +94,28 @@ def train(args):
         image_processors.append(vision_tower_aux.image_processor)
     
 
-    engagement_dataset = EngagementDataset(args.data_path, args.json_path, image_processors, device)
-    dataloader = DataLoader(
-        engagement_dataset, 
+    train_dataset = EngagementDataset(args.data_path, args.train_path, image_processors, device)
+    eval_dataset = EngagementDataset(args.data_path, args.eval_path, image_processors, device)
+    train_dataloader = DataLoader(
+        train_dataset, 
+        batch_size=args.batch_size, 
+        collate_fn=collate_fn,
+    )
+    eval_dataloader = DataLoader(
+        eval_dataset, 
         batch_size=args.batch_size, 
         collate_fn=collate_fn,
     )
     # AdamW optimizer for training
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=3e-6,         # Learning rate
+        lr=5e-7,         # Learning rate
         weight_decay=0.0 # Weight decay
     )
     loss_fnc = torch.nn.CrossEntropyLoss()
 
-    # model.eval()
-    model.train()
     num_epochs: int = 2
-    num_training_steps = len(dataloader) * num_epochs
+    num_training_steps = len(train_dataloader) * num_epochs
     num_warmup_steps = int(0.03 * num_training_steps)  # 3% of training steps
     scheduler = get_cosine_schedule_with_warmup(
         optimizer,
@@ -111,12 +123,13 @@ def train(args):
         num_training_steps=num_training_steps
     )   
 
-    logging_steps: int = 1
+    logging_steps: int = 10
+    eval_steps: int = 1250
     global_steps: int = 0
     for epoch in range(num_epochs):
-
-        for batch_idx, (filenames, videos, image_sizes, labels) in enumerate(dataloader):
-            logging.info(f'Processing batch {batch_idx + 1}/{len(dataloader)}')
+        model.train()
+        for batch_idx, (filenames, videos, image_sizes, labels) in enumerate(train_dataloader):
+            logging.info(f'Processing batch {batch_idx + 1}/{len(train_dataloader)}')
             assert isinstance(videos, list), "List of videos features for each processor (vision encoder)"
             assert isinstance(videos[0], list) or isinstance(videos[0], torch.Tensor), "List of videos in the batch"
             assert isinstance(image_sizes, list) or isinstance(image_sizes, tuple), "List/Tuple of frame sizes of videos in the batch"
@@ -126,21 +139,52 @@ def train(args):
             pred_logits = model(videos, image_sizes)
             loss = loss_fnc(pred_logits, labels)
             loss.backward()
-
+            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
             total_norm = 0.0
             for p in model.parameters():
                 if p.grad is not None:
                     param_norm = p.grad.detach().data.norm(2)
                     total_norm += param_norm.item() ** 2
             total_norm = total_norm ** 0.5
-            logging.info(f"Global step: {global_steps}, pred_logits: {pred_logits}, labels: {labels}, gradient norm: {total_norm:.4f}")
+            # logging.info(f"Global step: {global_steps}, pred_logits: {pred_logits}, labels: {labels}, ")
 
             optimizer.step()
             scheduler.step()
             global_steps += 1
 
             if global_steps % logging_steps == 0:
-                logging.info(f'Epoch {epoch + 1}/{num_epochs}, global step {global_steps}: loss={loss.item()}')
+                logging.info(f'Epoch {epoch + 1}/{num_epochs}')
+                logging.info(f'Global step: {global_steps}, loss={loss.item()}, clipped gradient norm: {total_norm:.4f}')
+                for param_group in optimizer.param_groups:
+                    cur_lr = param_group["lr"]
+                    logging.info(f'lr: {cur_lr:.10f}')
+
+            if global_steps % eval_steps == 0:
+                model.eval()
+                agg_loss = 0.
+                preds = []
+                gold_labels = []
+                for eval_batch_idx, (eval_filenames, eval_videos, eval_image_sizes, eval_labels) in enumerate(eval_dataloader):
+                    logging.info(f'Running eval batch {eval_batch_idx+1}/{len(eval_dataloader)}')
+                    with torch.no_grad():
+                        eval_logits = model(eval_videos, eval_image_sizes)
+                        preds.append(torch.argmax(eval_logits, dim=-1))
+                        gold_labels.append(eval_labels)
+                        eval_loss = loss_fnc(eval_logits, eval_labels)
+                        agg_loss += float(eval_loss.item())
+                agg_loss = agg_loss / len(eval_dataloader)
+                preds = torch.cat(preds, dim=0).detach().cpu().numpy()
+                gold_labels = torch.cat(gold_labels, dim=0).detach().cpu().numpy()
+                accuracy = accuracy_score(gold_labels, preds)
+                prec_w, recall_w, f1_w, _ = precision_recall_fscore_support(gold_labels, preds, average='weighted')
+                prec_micro, recall_micro, f1_micro, _ = precision_recall_fscore_support(gold_labels, preds, average='micro')
+                prec_macro, recall_macro, f1_macro, _ = precision_recall_fscore_support(gold_labels, preds, average='macro')
+
+                logging.info(f"Loss: {agg_loss:.10f}")
+                logging.info(f"Accuracy: {accuracy:.10f}")
+                logging.info(f"Weighted precision: {prec_w:.10f}, recall: {recall_w:.10f}, f1: {f1_w:.10f}")
+                logging.info(f"Micro precision: {prec_micro:.10f}, recall: {recall_micro:.10f}, f1: {f1_micro:.10f}")
+                logging.info(f"Macro precision: {prec_macro:.10f}, recall: {recall_macro:.10f}, f1: {f1_macro:.10f}")
 
 
         # tensor_siglip = image_aux_features_list[0].to('cpu')
