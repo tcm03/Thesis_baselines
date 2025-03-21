@@ -68,7 +68,7 @@ def collate_fn(batch):
             0: tuple of video tensors for SigLIP encoder
             1: tuple of video tensors for DINOv2 encoder
         image_sizes: tuple of image sizes for videos in the batch
-        labels: tuple of labels for videos in the batch
+        labels: torch.Tensor of labels for videos in the batch
     """
     assert isinstance(batch, list) or isinstance(batch, tuple)
     assert all(isinstance(item, DatasetItem) for item in batch)
