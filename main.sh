@@ -1,6 +1,6 @@
 DATA_PATH="/raid/nthuy/SnapUGC"
-TRAIN_PATH="/raid/nthuy/SnapUGC/snapugc_60s_4eval_train.json"
-EVAL_PATH="/raid/nthuy/SnapUGC/snapugc_60s_4eval_test.json"
+TRAIN_PATH="/raid/nthuy/SnapUGC/snapugc_30s_train_short.json"
+EVAL_PATH="/raid/nthuy/SnapUGC/snapugc_30s_test_short.json"
 MODEL_PATH="./checkpoints/longvu_llama3_2/pytorch_model.bin"
 
 python main.py \
