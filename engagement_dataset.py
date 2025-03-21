@@ -32,11 +32,11 @@ class EngagementDataset(Dataset):
         data_path: str,
         json_path: str,
         image_processors: List[BaseImageProcessor],
-        device: str
+        # device: str
     ) -> None:
         self.data = []
         self.image_processors = image_processors
-        self.device = device
+        # self.device = device
 
         with open(json_path, 'r') as f:
             json_data = json.load(f)
@@ -52,10 +52,11 @@ class EngagementDataset(Dataset):
     def __getitem__(self, idx):
         video, image_size = process_video_frames(self.data[idx][1], self.image_processors)
         # video: List[torch.Size([60, 3, 384, 384]), torch.Size([60, 3, 378, 378])]
-        for video_aux in video:
-            video_aux = video_aux.to(self.device)
+        # for video_aux in video:
+        #     video_aux = video_aux.to(self.device)
         filename = self.data[idx][0]
-        label = torch.tensor([self.data[idx][2]], dtype=torch.long, device=self.device)
+        # label = torch.tensor([self.data[idx][2]], dtype=torch.long, device=self.device)
+        label = torch.tensor([self.data[idx][2]], dtype=torch.long)
         return DatasetItem(filename, video, image_size, label)
 
 def collate_fn(batch):

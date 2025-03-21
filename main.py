@@ -17,6 +17,18 @@ from torch.utils.data import Dataset, DataLoader
 from transformers import BaseImageProcessor
 from constants import *
 
+import torch.distributed as dist
+from torch.utils.data.distributed import DistributedSampler
+from torch.distributed.fsdp import ShardingStrategy
+from torch.distributed.fsdp.wrap import (
+    transformer_auto_wrap_policy
+)
+from torch.distributed.fsdp.fully_sharded_data_parallel import (
+    FullyShardedDataParallel as FSDP
+)
+import functools
+import datetime
+
 from transformers import get_cosine_schedule_with_warmup
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 
@@ -53,19 +65,25 @@ def load_model(model, model_path):
     model.load_state_dict(model_state_dict)
 
 def train(args):
+    dist.init_process_group(backend="nccl", timeout=datetime.timedelta(hours=8))
+    dist.barrier()
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
+    os.environ["FSDP_USE_ORIG_PARAMS"] = "true"
     # Set up device (and log it)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logging.info(f'Using device: {device}')
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # logging.info(f'Using device: {device}')
 
     cambrianConfig = CambrianConfig.from_json_file(args.config_file)
     model = CambrianMeta(cambrianConfig)
     load_model(model, args.model_path)
+    # SyncBatchNorm for distributed training
+    model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
     for vision_tower_aux in model.vision_tower_aux_list:
         if not vision_tower_aux.is_loaded:
             vision_tower_aux.load_model()
 
-    model = model.to(device)
+    # model = model.to(device)
     for n, t in model.named_parameters():
         if "fc_" in n:
             t.requires_grad = True
@@ -92,23 +110,50 @@ def train(args):
     # for vision_tower_aux in model_module.vision_tower_aux_list:
     for vision_tower_aux in model.vision_tower_aux_list:
         image_processors.append(vision_tower_aux.image_processor)
-    
 
-    train_dataset = EngagementDataset(args.data_path, args.train_path, image_processors, device)
-    eval_dataset = EngagementDataset(args.data_path, args.eval_path, image_processors, device)
+    transformer_auto_wrapper_policy = functools.partial(
+        transformer_auto_wrap_policy,
+        transformer_layer_cls = {
+            Dinov2Layer,
+            SiglipEncoderLayer
+        }
+    )
+    sharded_model = FSDP(
+        model,
+        auto_wrap_policy=transformer_auto_wrapper_policy,
+        sharding_strategy=ShardingStrategy.FULL_SHARD,
+        use_orig_params=True,
+        device_id = torch.cuda.current_device()
+    )
+    
+    # Training and Evaluation Datasets, Data Samplers and Loaders
+    train_dataset = EngagementDataset(args.data_path, args.train_path, image_processors)
+    train_sampler = DistributedSampler(
+        train_dataset,
+        num_replicas=dist.get_world_size(),
+        rank=dist.get_rank(),
+        shuffle=True
+    )
     train_dataloader = DataLoader(
         train_dataset, 
-        batch_size=args.batch_size, 
+        batch_size=args.per_device_train_batch_size, 
+        sampler = train_sampler,
         collate_fn=collate_fn,
+        num_workers=os.cpu_count(),
+        pin_memory=True # speed up data transfer to GPU
     )
+    eval_dataset = EngagementDataset(args.data_path, args.eval_path, image_processors)
+    eval_sampler = DistributedSampler(eval_dataset, shuffle=False)
     eval_dataloader = DataLoader(
         eval_dataset, 
-        batch_size=args.batch_size, 
+        batch_size=args.per_device_eval_batch_size,
+        sampler = eval_sampler, 
         collate_fn=collate_fn,
     )
+
     # AdamW optimizer for training
     optimizer = torch.optim.AdamW(
-        model.parameters(),
+        sharded_model.parameters(),
         lr=5e-7,         # Learning rate
         weight_decay=0.0 # Weight decay
     )
@@ -127,7 +172,8 @@ def train(args):
     eval_steps: int = 1250
     global_steps: int = 0
     for epoch in range(num_epochs):
-        model.train()
+        train_sampler.set_epoch(epoch)
+        sharded_model.train()
         for batch_idx, (filenames, videos, image_sizes, labels) in enumerate(train_dataloader):
             logging.info(f'Processing batch {batch_idx + 1}/{len(train_dataloader)}')
             assert isinstance(videos, list), "List of videos features for each processor (vision encoder)"
@@ -136,17 +182,10 @@ def train(args):
             # tensor(num_reduced_frames, len=576, hidden_dim=1152/1536) image_aux_features_list[num_processors]
 
             optimizer.zero_grad()
-            pred_logits = model(videos, image_sizes)
+            pred_logits = sharded_model(videos, image_sizes)
             loss = loss_fnc(pred_logits, labels)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
-            total_norm = 0.0
-            for p in model.parameters():
-                if p.grad is not None:
-                    param_norm = p.grad.detach().data.norm(2)
-                    total_norm += param_norm.item() ** 2
-            total_norm = total_norm ** 0.5
-            # logging.info(f"Global step: {global_steps}, pred_logits: {pred_logits}, labels: {labels}, ")
+            total_norm = torch.nn.utils.clip_grad_norm_(sharded_model.parameters(), 1.)
 
             optimizer.step()
             scheduler.step()
@@ -160,31 +199,50 @@ def train(args):
                     logging.info(f'lr: {cur_lr:.10f}')
 
             if global_steps % eval_steps == 0:
-                model.eval()
-                agg_loss = 0.
+                sharded_model.eval()
+                device_loss = 0.
+                device_samples = 0
                 preds = []
                 gold_labels = []
                 for eval_batch_idx, (eval_filenames, eval_videos, eval_image_sizes, eval_labels) in enumerate(eval_dataloader):
                     logging.info(f'Running eval batch {eval_batch_idx+1}/{len(eval_dataloader)}')
                     with torch.no_grad():
-                        eval_logits = model(eval_videos, eval_image_sizes)
+                        eval_logits = sharded_model(eval_videos, eval_image_sizes)
                         preds.append(torch.argmax(eval_logits, dim=-1))
                         gold_labels.append(eval_labels)
                         eval_loss = loss_fnc(eval_logits, eval_labels)
-                        agg_loss += float(eval_loss.item())
-                agg_loss = agg_loss / len(eval_dataloader)
-                preds = torch.cat(preds, dim=0).detach().cpu().numpy()
-                gold_labels = torch.cat(gold_labels, dim=0).detach().cpu().numpy()
-                accuracy = accuracy_score(gold_labels, preds)
-                prec_w, recall_w, f1_w, _ = precision_recall_fscore_support(gold_labels, preds, average='weighted')
-                prec_micro, recall_micro, f1_micro, _ = precision_recall_fscore_support(gold_labels, preds, average='micro')
-                prec_macro, recall_macro, f1_macro, _ = precision_recall_fscore_support(gold_labels, preds, average='macro')
+                        device_loss += eval_loss.item() * args.per_device_eval_batch_size # sum(loss * samples)
+                        device_samples += args.per_device_eval_batch_size
+                
+                # aggregate losses across devices
+                total_loss_tensor = torch.tensor(device_loss, device=torch.cuda.current_device())
+                total_samples_tensor = torch.tensor(device_samples, device=torch.cuda.current_device())
+                dist.all_reduce(total_loss_tensor, op=dist.ReduceOp.SUM)
+                dist.all_reduce(total_samples_tensor, op=dist.ReduceOp.SUM)
+                agg_loss = total_loss_tensor.item() / total_samples_tensor.item()
 
-                logging.info(f"Loss: {agg_loss:.10f}")
-                logging.info(f"Accuracy: {accuracy:.10f}")
-                logging.info(f"Weighted precision: {prec_w:.10f}, recall: {recall_w:.10f}, f1: {f1_w:.10f}")
-                logging.info(f"Micro precision: {prec_micro:.10f}, recall: {recall_micro:.10f}, f1: {f1_micro:.10f}")
-                logging.info(f"Macro precision: {prec_macro:.10f}, recall: {recall_macro:.10f}, f1: {f1_macro:.10f}")
+                # aggregate predictions and labels across devices
+                preds = torch.cat(preds, dim=0)
+                gold_labels = torch.cat(gold_labels, dim=0)
+                all_preds = [torch.zeros_like(preds) for _ in range(dist.get_world_size())]
+                all_gold_labels = [torch.zeros_like(gold_labels) for _ in range(dist.get_world_size())]
+                dist.all_gather(all_preds, preds)
+                dist.all_gather(all_gold_labels, gold_labels)
+
+                if dist.get_rank() == 0:
+                    all_preds = torch.cat(all_preds, dim=0).cpu().numpy()
+                    all_gold_labels = torch.cat(all_gold_labels, dim=0).cpu().numpy()
+                    agg_loss = agg_loss / len(eval_dataloader)
+                    accuracy = accuracy_score(all_gold_labels, all_preds)
+                    prec_w, recall_w, f1_w, _ = precision_recall_fscore_support(all_gold_labels, all_preds, average='weighted')
+                    prec_micro, recall_micro, f1_micro, _ = precision_recall_fscore_support(all_gold_labels, all_preds, average='micro')
+                    prec_macro, recall_macro, f1_macro, _ = precision_recall_fscore_support(all_gold_labels, all_preds, average='macro')
+
+                    logging.info(f"Loss: {agg_loss:.10f}")
+                    logging.info(f"Accuracy: {accuracy:.10f}")
+                    logging.info(f"Weighted precision: {prec_w:.10f}, recall: {recall_w:.10f}, f1: {f1_w:.10f}")
+                    logging.info(f"Micro precision: {prec_micro:.10f}, recall: {recall_micro:.10f}, f1: {f1_micro:.10f}")
+                    logging.info(f"Macro precision: {prec_macro:.10f}, recall: {recall_macro:.10f}, f1: {f1_macro:.10f}")
 
 
         # tensor_siglip = image_aux_features_list[0].to('cpu')
@@ -254,10 +312,16 @@ if __name__ == "__main__":
         help = 'Path to configuration file of encoders parameters'
     )
     parser.add_argument(
-        '--batch_size',
+        '--per_device_train_batch_size',
         type=int,
         default=1,
-        help='Batch size for inference (global batch size, will be split across GPUs)'
+        help='Per-device batch size for training (multiply with number of devices to obtain global train batch size)'
+    )
+    parser.add_argument(
+        '--per_device_eval_batch_size',
+        type=int,
+        default=1,
+        help='Per-device batch size for evaluation (multiply with number of devices to obtain global eval batch size)'
     )
     args = parser.parse_args()
     os.makedirs(SAFETENSORS_PATH, exist_ok=True)
