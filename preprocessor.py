@@ -106,6 +106,7 @@ class CambrianMeta(nn.Module):
         query_num_list = config.query_num_list # [144]
         connector_only = config.connector_only # true
         connector_depth = config.connector_depth # 3
+        logging.info("In CambrianMeta.init: before build vision tower list")
         self.vision_tower_aux_list = nn.ModuleList(build_vision_tower_aux_list(
             config, delay_load=True
         ))
@@ -123,7 +124,7 @@ class CambrianMeta(nn.Module):
             int(vision_tower_aux_token_len**0.5) // int(image_token_len**0.5)
             for vision_tower_aux_token_len in vision_tower_aux_token_len_list
         ]
-
+        logging.info("In CambrianMeta.init: before mm_projector_aux")
         for aux_i, vision_tower_aux in enumerate(self.vision_tower_aux_list):
             setattr(
                 self,
@@ -136,7 +137,7 @@ class CambrianMeta(nn.Module):
                 ),
             )
             
-
+        logging.info("In CambrianMeta.init: before vision sampler")
         for query_group_i in range(num_query_group):
             cross_att_token_len_list = [
                 int(vision_tower_aux_token_len**0.5)
@@ -203,23 +204,28 @@ class CambrianMeta(nn.Module):
 #                for hid_j in range(config.hidden_size)
 #            ]
 #        )
-
+        logging.info("In CambrianMeta.init: before fc+bn")
         self.pad_num_frames = 60
         self.num_engagement_labels = 3
         # self.last_fc = nn.Linear(self.pad_num_frames * image_token_len * vision_hidden_size, self.num_engagement_labels)
-        self.fc_1 = nn.Linear(self.pad_num_frames * image_token_len * vision_hidden_size, 128)
-        self.bn_1 = nn.BatchNorm1d(128)
-        self.fc_2 = nn.Linear(128, 32)
-        self.bn_2 = nn.BatchNorm1d(32)
-        self.fc_3 = nn.Linear(32, self.num_engagement_labels)
+        logging.info(f"In CambrianMeta.init: fc 1 ({self.pad_num_frames * image_token_len * vision_hidden_size}, 32)")
+        self.fc_1 = nn.Linear(self.pad_num_frames * image_token_len * vision_hidden_size, 32)
+        logging.info("In CambrianMeta.init: after fc_1")
+        self.bn_1 = nn.BatchNorm1d(32)
+        self.fc_2 = nn.Linear(32, 16)
+        self.bn_2 = nn.BatchNorm1d(16)
+        self.fc_3 = nn.Linear(16, self.num_engagement_labels)
         self.bn_3 = nn.BatchNorm1d(self.num_engagement_labels)
 
         self.init_weights()
+        logging.info("In CambrianMeta.init: done")
 
     def init_weights(self):
+        logging.info("In CambrianMeta.init_weights: Before init weights")
         init.xavier_uniform_(self.fc_1.weight)
         if self.fc_1.bias is not None:
             init.zeros_(self.fc_1.bias)
+        logging.info("After init fc 1")
         init.xavier_uniform_(self.fc_2.weight)
         if self.fc_2.bias is not None:
             init.zeros_(self.fc_2.bias)

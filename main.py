@@ -18,16 +18,21 @@ from transformers import BaseImageProcessor
 from constants import *
 
 import torch.distributed as dist
+from torch.distributed.fsdp import MixedPrecision
 from torch.utils.data.distributed import DistributedSampler
 from torch.distributed.fsdp import ShardingStrategy
 from torch.distributed.fsdp.wrap import (
-    transformer_auto_wrap_policy
+    transformer_auto_wrap_policy,
+    size_based_auto_wrap_policy
 )
 from torch.distributed.fsdp.fully_sharded_data_parallel import (
     FullyShardedDataParallel as FSDP
 )
 import functools
 import datetime
+
+from transformers.models.dinov2.modeling_dinov2 import Dinov2Layer
+from transformers.models.siglip.modeling_siglip import SiglipEncoderLayer
 
 from transformers import get_cosine_schedule_with_warmup
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
@@ -65,6 +70,7 @@ def load_model(model, model_path):
     model.load_state_dict(model_state_dict)
 
 def train(args):
+    logging.info("In train(): Before init process group")
     dist.init_process_group(backend="nccl", timeout=datetime.timedelta(hours=8))
     dist.barrier()
     os.environ["TOKENIZERS_PARALLELISM"] = "false"
@@ -74,11 +80,14 @@ def train(args):
     # logging.info(f'Using device: {device}')
 
     cambrianConfig = CambrianConfig.from_json_file(args.config_file)
+    logging.info("In train(): Before model init")
     model = CambrianMeta(cambrianConfig)
+    logging.info("In train(): Before model loading")
     load_model(model, args.model_path)
     # SyncBatchNorm for distributed training
     model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
 
+    logging.info("In train(): Before vision tower loading")
     for vision_tower_aux in model.vision_tower_aux_list:
         if not vision_tower_aux.is_loaded:
             vision_tower_aux.load_model()
@@ -95,6 +104,7 @@ def train(args):
 #    logging.info(f"Model state dict")
 #    for k, v in model.state_dict().items():
 #        logging.info(f"{k}: {v.size()}")
+
     logging.info("Trainable layers")
     for n, t in model.named_parameters():
         if t.requires_grad:
@@ -118,9 +128,20 @@ def train(args):
             SiglipEncoderLayer
         }
     )
+    auto_wrap_policy = functools.partial(
+        size_based_auto_wrap_policy,
+        min_num_params=50_000_000,
+    )
+    fp16_policy = MixedPrecision(
+        param_dtype=torch.float16,
+        reduce_dtype=torch.float16,
+        buffer_dtype=torch.float16
+    )
     sharded_model = FSDP(
         model,
-        auto_wrap_policy=transformer_auto_wrapper_policy,
+        mixed_precision=fp16_policy,
+        # auto_wrap_policy=transformer_auto_wrapper_policy,
+        auto_wrap_policy=auto_wrap_policy,
         sharding_strategy=ShardingStrategy.FULL_SHARD,
         use_orig_params=True,
         device_id = torch.cuda.current_device()
@@ -139,7 +160,7 @@ def train(args):
         batch_size=args.per_device_train_batch_size, 
         sampler = train_sampler,
         collate_fn=collate_fn,
-        num_workers=os.cpu_count(),
+        num_workers=min(64, os.cpu_count()),
         pin_memory=True # speed up data transfer to GPU
     )
     eval_dataset = EngagementDataset(args.data_path, args.eval_path, image_processors)
@@ -182,11 +203,14 @@ def train(args):
             # tensor(num_reduced_frames, len=576, hidden_dim=1152/1536) image_aux_features_list[num_processors]
 
             optimizer.zero_grad()
+            logging.info("Before forward")
             pred_logits = sharded_model(videos, image_sizes)
             loss = loss_fnc(pred_logits, labels)
+            logging.info("Before backward")
             loss.backward()
             total_norm = torch.nn.utils.clip_grad_norm_(sharded_model.parameters(), 1.)
 
+            logging.info("Before stepping")
             optimizer.step()
             scheduler.step()
             global_steps += 1
@@ -274,6 +298,7 @@ def train(args):
         #         logging.error(f"Error deleting file '{safetensors_file_path}': {e}")
 
 if __name__ == "__main__":
+    logging.info("----- RUNNING MAIN -----")
     parser = argparse.ArgumentParser()
     parser.add_argument(
         '--data_path',
