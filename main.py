@@ -2,6 +2,11 @@ import sys
 sys.path.append('.')
 
 import torch
+import torch.distributed as dist
+from torch.distributed import init_process_group, destroy_process_group
+from torch.nn.parallel import DistributedDataParallel as DDP
+from torch.utils.data.distributed import DistributedSampler
+
 import os
 import argparse
 from typing import List, Dict
@@ -33,10 +38,15 @@ logging.basicConfig(
     format="%(asctime)s - %(filename)s:%(lineno)d - %(funcName)s - %(levelname)s - %(message)s"
 )
 
-def load_model(model, model_path):
+torch.manual_seed(1337)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed(1337)
+
+def load_model(model, model_path, master_process=False):
     pretrained_state_dict = torch.load(model_path, map_location = 'cpu')
     model_state_dict = model.state_dict()
-    logging.info("Initializing layers...")
+    if master_process:
+        logging.info("Initializing layers...")
     for layer_name in model_state_dict.keys():
         if "vision_tower" in layer_name:
             # skip manual loading of vision encoders
@@ -44,43 +54,66 @@ def load_model(model, model_path):
         load_pretrained = False
         for pretrained_layer_name in pretrained_state_dict.keys():
             if layer_name in pretrained_layer_name:
-                logging.info(f"Load {layer_name}")
+                if master_process:
+                    logging.info(f"Load {layer_name}")
                 model_state_dict[layer_name] = pretrained_state_dict[pretrained_layer_name]
                 load_pretrained = True
                 break
-        if load_pretrained is False:
+        if load_pretrained is False and master_process is True:
             logging.info(f"Skip {layer_name}")
     model.load_state_dict(model_state_dict)
 
 def train(args):
-    # Set up device (and log it)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    logging.info(f'Using device: {device}')
+    ddp = int(os.environ.get("RANK", -1)) != -1
+    if ddp:
+        assert torch.cuda.is_available(), "Distributed training requires CUDA"
+        init_process_group(backend="nccl")
+        ddp_rank = int(os.environ["RANK"])
+        ddp_local_rank = int(os.environ["LOCAL_RANK"])
+        ddp_world_size = int(os.environ["WORLD_SIZE"])
+        device = f"cuda:{ddp_local_rank}"
+        torch.cuda.set_device(device)
+        master_process = ddp_rank == 0 # main process for logging, checkpointing, etc.
+    else:
+        # non-ddp
+        ddp_rank = 0
+        ddp_local_rank = 0
+        ddp_world_size = 1
+        master_process = True
+        device = "cpu"
+        if torch.cuda.is_available():
+            device = "cuda"
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            device = "mps"
+        logging.info(f"Using device: {device}")
 
     cambrianConfig = CambrianConfig.from_json_file(args.config_file)
     model = CambrianMeta(cambrianConfig)
-    load_model(model, args.model_path)
+    load_model(model, args.model_path, master_process=master_process)
 
     for vision_tower_aux in model.vision_tower_aux_list:
         if not vision_tower_aux.is_loaded:
             vision_tower_aux.load_model()
 
-    model = model.to(device)
+    model.to(device)
     for n, t in model.named_parameters():
-        if "fc_" in n:
-            t.requires_grad = True
-        elif "bn_" in n:
+        if "fc_" in n or "ln_" in n:
             t.requires_grad = True
         else:
             t.requires_grad = False
+    
+    if ddp:
+        model = DDP(model, device_ids=[ddp_local_rank])
+    raw_model = model.module if ddp else model
 
 #    logging.info(f"Model state dict")
 #    for k, v in model.state_dict().items():
 #        logging.info(f"{k}: {v.size()}")
-    logging.info("Trainable layers")
-    for n, t in model.named_parameters():
-        if t.requires_grad:
-            logging.info(f'Layer name: {n}')
+    if master_process:
+        logging.info("Trainable layers")
+        for n, t in raw_model.named_parameters():
+            if t.requires_grad:
+                logging.info(f'Layer: {n}')
     # For inference on multiple GPUs, wrap with DataParallel if more than one GPU is available.
     # if torch.cuda.device_count() > 1:
     #     logging.info(f'Using {torch.cuda.device_count()} GPUs with DataParallel')
@@ -88,33 +121,48 @@ def train(args):
     # # When using DataParallel, submodules are under processor.module.
     # model_module = processor.module if isinstance(processor, torch.nn.DataParallel) else processor
 
-    image_processors = []
-    # for vision_tower_aux in model_module.vision_tower_aux_list:
-    for vision_tower_aux in model.vision_tower_aux_list:
-        image_processors.append(vision_tower_aux.image_processor)
+    image_processors = [vision_tower_aux.image_processor for vision_tower_aux in raw_model.vision_tower_aux_list]
     
+    train_dataset = EngagementDataset(
+        data_paths=args.data_paths, 
+        json_paths=args.train_paths, 
+        image_processors=image_processors
+    )
+    eval_dataset = EngagementDataset(
+        data_paths=args.data_paths, 
+        json_paths=args.eval_paths, 
+        image_processors=image_processors
+    )
 
-    train_dataset = EngagementDataset(args.data_path, args.train_path, image_processors, device)
-    eval_dataset = EngagementDataset(args.data_path, args.eval_path, image_processors, device)
+    # Set up DistributedSampler (if in DDP mode) for automatic data splitting
+    train_sampler = DistributedSampler(train_dataset, shuffle=True, drop_last=True) if ddp else None
+    # For evaluation we set shuffle=False to preserve order. Note that DistributedSampler pads samples,
+    # so we will trim the predictions later.
+    eval_sampler = DistributedSampler(eval_dataset, shuffle=False, drop_last=True) if ddp else None
+
     train_dataloader = DataLoader(
         train_dataset, 
-        batch_size=args.batch_size, 
+        batch_size=args.per_device_train_batch_size, 
+        sampler=train_sampler,
+        drop_last=True,
         collate_fn=collate_fn,
     )
     eval_dataloader = DataLoader(
         eval_dataset, 
-        batch_size=args.batch_size, 
+        batch_size=args.per_device_eval_batch_size, 
+        sampler=eval_sampler,
+        drop_last=True,
         collate_fn=collate_fn,
     )
     # AdamW optimizer for training
     optimizer = torch.optim.AdamW(
-        model.parameters(),
+        raw_model.parameters(),
         lr=5e-7,         # Learning rate
         weight_decay=0.0 # Weight decay
     )
     loss_fnc = torch.nn.CrossEntropyLoss()
 
-    num_epochs: int = 2
+    num_epochs: int = 1
     num_training_steps = len(train_dataloader) * num_epochs
     num_warmup_steps = int(0.03 * num_training_steps)  # 3% of training steps
     scheduler = get_cosine_schedule_with_warmup(
@@ -124,68 +172,107 @@ def train(args):
     )   
 
     logging_steps: int = 10
-    eval_steps: int = 1250
+    eval_steps: int = 380
     global_steps: int = 0
     for epoch in range(num_epochs):
+        if ddp:
+            # Ensure each process sees a different ordering at each epoch
+            train_sampler.set_epoch(epoch)
         model.train()
         for batch_idx, (filenames, videos, image_sizes, labels) in enumerate(train_dataloader):
-            logging.info(f'Processing batch {batch_idx + 1}/{len(train_dataloader)}')
+            if master_process:
+                logging.info(f'Epoch {epoch + 1}/{num_epochs}, batch {batch_idx + 1}/{len(train_dataloader)}')
             assert isinstance(videos, list), "List of videos features for each processor (vision encoder)"
             assert isinstance(videos[0], list) or isinstance(videos[0], torch.Tensor), "List of videos in the batch"
             assert isinstance(image_sizes, list) or isinstance(image_sizes, tuple), "List/Tuple of frame sizes of videos in the batch"
             # tensor(num_reduced_frames, len=576, hidden_dim=1152/1536) image_aux_features_list[num_processors]
 
+            # videos: List[List[video_tensor1, ...], List[video_tensor1, ...]]
+            for i, videos_aux in enumerate(videos):
+                videos[i] = [video.to(device) for video in videos_aux]
+            labels = labels.to(device)
             optimizer.zero_grad()
+
             pred_logits = model(videos, image_sizes)
             loss = loss_fnc(pred_logits, labels)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
-            total_norm = 0.0
-            for p in model.parameters():
-                if p.grad is not None:
-                    param_norm = p.grad.detach().data.norm(2)
-                    total_norm += param_norm.item() ** 2
-            total_norm = total_norm ** 0.5
-            # logging.info(f"Global step: {global_steps}, pred_logits: {pred_logits}, labels: {labels}, ")
 
             optimizer.step()
             scheduler.step()
+            torch.cuda.synchronize() # wait for the GPU to finish work
             global_steps += 1
 
-            if global_steps % logging_steps == 0:
-                logging.info(f'Epoch {epoch + 1}/{num_epochs}')
-                logging.info(f'Global step: {global_steps}, loss={loss.item()}, clipped gradient norm: {total_norm:.4f}')
+            if global_steps % logging_steps == 0 and master_process:
+                total_norm = sum(p.grad.detach().data.norm(2).item() ** 2 for p in model.parameters() if p.grad is not None) ** 0.5
+                logging.info(f'Epoch {epoch + 1}/{num_epochs}, global step: {global_steps}, loss={loss.item()}, clipped gradient norm: {total_norm:.4f}')
                 for param_group in optimizer.param_groups:
                     cur_lr = param_group["lr"]
                     logging.info(f'lr: {cur_lr:.10f}')
 
-            if global_steps % eval_steps == 0:
+            do_eval = (global_steps % eval_steps == 0) or (epoch == num_epochs - 1 and batch_idx == len(train_dataloader) - 1)
+            if do_eval:
+                if ddp:
+                    dist.barrier() # wait for all processes to finish before evaluation
                 model.eval()
-                agg_loss = 0.
-                preds = []
-                gold_labels = []
+                
+                device_loss = 0.
+                device_samples = 0
+                device_preds, device_gold_labels = [], []
                 for eval_batch_idx, (eval_filenames, eval_videos, eval_image_sizes, eval_labels) in enumerate(eval_dataloader):
-                    logging.info(f'Running eval batch {eval_batch_idx+1}/{len(eval_dataloader)}')
+                    if master_process:
+                        logging.info(f'After epoch {epoch + 1}, eval batch {eval_batch_idx+1}/{len(eval_dataloader)}')
+                    for i, videos_aux in enumerate(eval_videos):
+                        eval_videos[i] = [video.to(device) for video in videos_aux]
+                    eval_labels = eval_labels.to(device)
+
                     with torch.no_grad():
                         eval_logits = model(eval_videos, eval_image_sizes)
-                        preds.append(torch.argmax(eval_logits, dim=-1))
-                        gold_labels.append(eval_labels)
+                        cur_preds = torch.argmax(eval_logits, dim=-1)
+                        device_preds.append(cur_preds)
+                        device_gold_labels.append(eval_labels)
                         eval_loss = loss_fnc(eval_logits, eval_labels)
-                        agg_loss += float(eval_loss.item())
-                agg_loss = agg_loss / len(eval_dataloader)
-                preds = torch.cat(preds, dim=0).detach().cpu().numpy()
-                gold_labels = torch.cat(gold_labels, dim=0).detach().cpu().numpy()
-                accuracy = accuracy_score(gold_labels, preds)
-                prec_w, recall_w, f1_w, _ = precision_recall_fscore_support(gold_labels, preds, average='weighted')
-                prec_micro, recall_micro, f1_micro, _ = precision_recall_fscore_support(gold_labels, preds, average='micro')
-                prec_macro, recall_macro, f1_macro, _ = precision_recall_fscore_support(gold_labels, preds, average='macro')
+                        device_loss += eval_loss.item() * eval_labels.shape[0]
+                        device_samples += eval_labels.shape[0]
+                
+                total_loss_tensor = torch.tensor(device_loss, device=device)
+                total_samples_tensor = torch.tensor(device_samples, device=device)
+                if ddp:
+                    # aggregate losses across devices
+                    dist.all_reduce(total_loss_tensor, op=dist.ReduceOp.SUM)
+                    dist.all_reduce(total_samples_tensor, op=dist.ReduceOp.SUM)
+                agg_loss = total_loss_tensor.item() / total_samples_tensor.item()
 
-                logging.info(f"Loss: {agg_loss:.10f}")
-                logging.info(f"Accuracy: {accuracy:.10f}")
-                logging.info(f"Weighted precision: {prec_w:.10f}, recall: {recall_w:.10f}, f1: {f1_w:.10f}")
-                logging.info(f"Micro precision: {prec_micro:.10f}, recall: {recall_micro:.10f}, f1: {f1_micro:.10f}")
-                logging.info(f"Macro precision: {prec_macro:.10f}, recall: {recall_macro:.10f}, f1: {f1_macro:.10f}")
+                preds = torch.cat(device_preds, dim=0)
+                gold_labels = torch.cat(device_gold_labels, dim=0)
+                # Gather predictions from all processes
+                if ddp:
+                    all_preds = [torch.zeros_like(preds) for _ in range(ddp_world_size)]
+                    all_gold_labels = [torch.zeros_like(gold_labels) for _ in range(ddp_world_size)]
+                    dist.all_gather(all_preds, preds)
+                    dist.all_gather(all_gold_labels, gold_labels)
+                    preds = torch.cat(all_preds, dim=0)
+                    gold_labels = torch.cat(all_gold_labels, dim=0)
+                
+                # if master_process:
+                #     logging.info(f"len(preds): {len(preds)}, len(gold_labels): {len(gold_labels)}")
+                preds_np = preds.cpu().numpy()
+                gold_labels_np = gold_labels.cpu().numpy()
+                if master_process:
+                    accuracy = accuracy_score(gold_labels_np, preds_np)
+                    prec_w, recall_w, f1_w, _ = precision_recall_fscore_support(gold_labels_np, preds_np, average='weighted')
+                    prec_micro, recall_micro, f1_micro, _ = precision_recall_fscore_support(gold_labels_np, preds_np, average='micro')
+                    prec_macro, recall_macro, f1_macro, _ = precision_recall_fscore_support(gold_labels_np, preds_np, average='macro')
 
+                    logging.info(f"Evaluation loss: {agg_loss:.10f}")
+                    logging.info(f"Evaluation accuracy: {accuracy:.10f}")
+                    logging.info(f"Evaluation weighted precision: {prec_w:.10f}, recall: {recall_w:.10f}, f1: {f1_w:.10f}")
+                    logging.info(f"Evaluation micro precision: {prec_micro:.10f}, recall: {recall_micro:.10f}, f1: {f1_micro:.10f}")
+                    logging.info(f"Evaluation macro precision: {prec_macro:.10f}, recall: {recall_macro:.10f}, f1: {f1_macro:.10f}")
+                model.train()
+    
+    if ddp:
+        destroy_process_group()
 
         # tensor_siglip = image_aux_features_list[0].to('cpu')
         # tensor_dino = image_aux_features_list[1].to('cpu')
@@ -218,20 +305,23 @@ def train(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        '--data_path',
+        '--data_paths',
         type=str,
+        nargs='+',
         required=True,
         help="Path to video dataset"
     )
     parser.add_argument(
-        '--train_path',
+        '--train_paths',
         type=str,
+        nargs='+',
         required=True,
         help="Path to metadata file of the training video dataset"
     )
     parser.add_argument(
-        '--eval_path',
+        '--eval_paths',
         type=str,
+        nargs='+',
         required=True,
         help="Path to metadata file of the evaluation video dataset"
     )
@@ -254,10 +344,16 @@ if __name__ == "__main__":
         help = 'Path to configuration file of encoders parameters'
     )
     parser.add_argument(
-        '--batch_size',
+        '--per_device_train_batch_size',
         type=int,
         default=1,
-        help='Batch size for inference (global batch size, will be split across GPUs)'
+        help='Per-device train batch size for running'
+    )
+    parser.add_argument(
+        '--per_device_eval_batch_size',
+        type=int,
+        default=1,
+        help='Per-device eval batch size for running'
     )
     args = parser.parse_args()
     os.makedirs(SAFETENSORS_PATH, exist_ok=True)

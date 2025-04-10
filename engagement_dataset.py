@@ -29,22 +29,25 @@ class EngagementDataset(Dataset):
     
     def __init__(
         self,
-        data_path: str,
-        json_path: str,
+        data_paths: List[str],
+        json_paths: List[str],
         image_processors: List[BaseImageProcessor],
-        device: str
     ) -> None:
-        self.data = []
-        self.image_processors = image_processors
-        self.device = device
+        assert len(data_paths) == len(json_paths), "data_paths and json_paths must have the same length"
+        self.data: Tuple[str, str, int] = [] # [(filename, video_path, label)]
+        self.image_processors: List[BaseImageProcessor] = image_processors
 
-        with open(json_path, 'r') as f:
-            json_data = json.load(f)
-            for item in json_data:
-                video_path = os.path.join(data_path, item["video"])
-                label = int(item["label"])
-                filename = extract_filename(video_path)
-                self.data.append((filename, video_path, label))
+        for i in range(len(data_paths)):
+            json_path = json_paths[i]
+            data_path = data_paths[i]
+            with open(json_path, 'r') as f:
+                json_data = json.load(f)
+                assert isinstance(json_data, list), f"Json format must be a list, but got {type(json_data)}"
+                for item in json_data:
+                    video_path = os.path.join(data_path, item["video"])
+                    label = int(item["label"])
+                    filename = extract_filename(video_path)
+                    self.data.append((filename, video_path, label))
 
     def __len__(self):
         return len(self.data)
@@ -52,10 +55,8 @@ class EngagementDataset(Dataset):
     def __getitem__(self, idx):
         video, image_size = process_video_frames(self.data[idx][1], self.image_processors)
         # video: List[torch.Size([60, 3, 384, 384]), torch.Size([60, 3, 378, 378])]
-        for video_aux in video:
-            video_aux = video_aux.to(self.device)
         filename = self.data[idx][0]
-        label = torch.tensor([self.data[idx][2]], dtype=torch.long, device=self.device)
+        label = torch.tensor([self.data[idx][2]], dtype=torch.long)
         return DatasetItem(filename, video, image_size, label)
 
 def collate_fn(batch):

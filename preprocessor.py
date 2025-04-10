@@ -204,35 +204,25 @@ class CambrianMeta(nn.Module):
 #            ]
 #        )
 
-        self.pad_num_frames = 60
+        # self.pad_num_frames = 60
         self.num_engagement_labels = 3
-        # self.last_fc = nn.Linear(self.pad_num_frames * image_token_len * vision_hidden_size, self.num_engagement_labels)
-        self.fc_1 = nn.Linear(self.pad_num_frames * image_token_len * vision_hidden_size, 128)
-        self.bn_1 = nn.BatchNorm1d(128)
-        self.fc_2 = nn.Linear(128, 32)
-        self.bn_2 = nn.BatchNorm1d(32)
-        self.fc_3 = nn.Linear(32, self.num_engagement_labels)
-        self.bn_3 = nn.BatchNorm1d(self.num_engagement_labels)
+        self.fc_sizes = [image_token_len * vision_hidden_size, 128, 32, self.num_engagement_labels]
+        for i in range(len(self.fc_sizes) - 1):
+            setattr(self, f"ln_{i}", nn.LayerNorm(self.fc_sizes[i]))
+            setattr(self, f"fc_{i}", nn.Linear(self.fc_sizes[i], self.fc_sizes[i + 1]))
 
         self.init_weights()
 
     def init_weights(self):
-        init.xavier_uniform_(self.fc_1.weight)
-        if self.fc_1.bias is not None:
-            init.zeros_(self.fc_1.bias)
-        init.xavier_uniform_(self.fc_2.weight)
-        if self.fc_2.bias is not None:
-            init.zeros_(self.fc_2.bias)
-        init.xavier_uniform_(self.fc_3.weight)
-        if self.fc_3.bias is not None:
-            init.zeros_(self.fc_3.bias)
-        # Initialize batch_norm layer
-        init.ones_(self.bn_1.weight)
-        init.zeros_(self.bn_1.bias)
-        init.ones_(self.bn_2.weight)
-        init.zeros_(self.bn_2.bias)
-        init.ones_(self.bn_3.weight)
-        init.zeros_(self.bn_3.bias)
+        for i in range(len(self.fc_sizes) - 1):
+            fc = getattr(self, f"fc_{i}")
+            if fc.bias is not None:
+                init.zeros_(fc.bias)
+            init.xavier_uniform_(fc.weight)
+            ln = getattr(self, f"ln_{i}")
+            if ln.bias is not None:
+                init.zeros_(ln.bias)
+            init.ones_(ln.weight)
 
     def get_frame_pos(self, time_range):
         frame_pos = self.frame_pos.reshape(1, -1) * time_range.reshape(-1, 1).to(
@@ -584,7 +574,7 @@ class CambrianMeta(nn.Module):
 
         frame_sizes = []
         # logging.info(f'image_sizes: {image_sizes}')
-        logging.info(f'In prepare_mm_features: split_sizes: {split_sizes}')
+        # logging.info(f'In prepare_mm_features: split_sizes: {split_sizes}')
         for i in range(len(image_sizes)):
             for j in range(split_sizes[i]):
                 frame_sizes.append(image_sizes[i])
@@ -744,15 +734,16 @@ class CambrianMeta(nn.Module):
             cur_frames_features = image_features[start_frame_idx:start_frame_idx + cur_num_frames]
             start_frame_idx += cur_num_frames
             # if first dim (num frames) less than 60, pad it to 60 with zeros
-            if cur_frames_features.shape[0] < self.pad_num_frames:
-                cur_seq_len = cur_frames_features.shape[1]
-                cur_hidden_size = cur_frames_features.shape[2]
-                pad = torch.zeros((self.pad_num_frames - cur_frames_features.shape[0], cur_seq_len, cur_hidden_size), dtype=dtype, device=self.vision_query.device)
-#                logging.info(f"debug: cur_frames_features.device: {cur_frames_features.device}")
-#                logging.info(f"debug: pad.device: {pad.device}")
-                cur_frames_features = torch.cat([cur_frames_features, pad], dim=0)
-            elif cur_frames_features.shape[0] > self.pad_num_frames:
-                cur_frames_features = cur_frames_features[:self.pad_num_frames]
+            # if cur_frames_features.shape[0] < self.pad_num_frames:
+            #     cur_seq_len = cur_frames_features.shape[1]
+            #     cur_hidden_size = cur_frames_features.shape[2]
+            #     pad = torch.zeros((self.pad_num_frames - cur_frames_features.shape[0], cur_seq_len, cur_hidden_size), dtype=dtype, device=self.vision_query.device)
+            #     cur_frames_features = torch.cat([cur_frames_features, pad], dim=0)
+            # elif cur_frames_features.shape[0] > self.pad_num_frames:
+            #     cur_frames_features = cur_frames_features[:self.pad_num_frames]
+            
+            # Try averaging the frames features
+            cur_frames_features = torch.mean(cur_frames_features, dim=0, keepdim=True)
             cur_frames_features = cur_frames_features.flatten(0, 2)
             final_image_features_list.append(cur_frames_features)
         final_image_features_batch = torch.stack(final_image_features_list, dim=0) # [batch size, 60 * 144 * 1024]
@@ -1033,11 +1024,13 @@ class CambrianMeta(nn.Module):
             images,
             image_sizes,
         )
-        o1 = self.fc_1(image_features_batch)
-        o1 = self.bn_1(o1)
-        o2 = self.fc_2(o1)
-        o2 = self.bn_2(o2)
-        o3 = self.fc_3(o2)
-        o3 = self.bn_3(o3)
-        return o3
+        for i in range(len(self.fc_sizes) - 1):
+            ln = getattr(self, f"ln_{i}")
+            fc = getattr(self, f"fc_{i}")
+            image_features_batch = ln(image_features_batch)
+            image_features_batch = fc(image_features_batch)
+            if i < len(self.fc_sizes) - 2:
+                image_features_batch = F.relu(image_features_batch)
+        
+        return image_features_batch
         
