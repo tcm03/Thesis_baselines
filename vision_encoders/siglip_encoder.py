@@ -39,7 +39,6 @@ class SiglipVisionTower(BaseVisionTower):
 
         self.vision_tower.requires_grad_(self.unfreeze_mm_vision_tower)
         self.is_loaded = True
-        logging.info(f'SiglipVisionModel loaded')
 
     def interpolate(self, image_features):
         if self._interp_size is None:

@@ -6,6 +6,7 @@ import torch.distributed as dist
 from torch.distributed import init_process_group, destroy_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
+from torch.optim.lr_scheduler import LambdaLR # for verifying the correctness of checkpoint resumption only, no real use
 
 import os
 import argparse
@@ -42,6 +43,8 @@ torch.manual_seed(1337)
 if torch.cuda.is_available():
     torch.cuda.manual_seed(1337)
 
+ddp = int(os.environ.get("RANK", -1)) != -1
+
 def load_model(model, model_path, master_process=False):
     pretrained_state_dict = torch.load(model_path, map_location = 'cpu')
     model_state_dict = model.state_dict()
@@ -63,8 +66,103 @@ def load_model(model, model_path, master_process=False):
             logging.info(f"Skip {layer_name}")
     model.load_state_dict(model_state_dict)
 
+def load_checkpoint(
+    checkpoint_path: str,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler=None,
+    master_process: bool = False
+):
+    """
+    Loads a checkpoint containing only the trainable parts of the model,
+    along with the optimizer and scheduler states.
+
+    Args:
+        checkpoint_path (str): File path to the checkpoint.
+        model (torch.nn.Module): The model (can be wrapped in DDP).
+        optimizer (torch.optim.Optimizer): The optimizer used for training.
+        scheduler (optional): Learning rate scheduler; its state is loaded if provided.
+    """
+    checkpoint = torch.load(checkpoint_path, map_location='cpu')
+    if master_process is True:
+        # logging.info(f"Load checkpoint keys: {checkpoint.keys()}")
+        logging.info(f"Load checkpoint:\n{checkpoint}")
+    raw_model = model.module if hasattr(model, "module") else model
+    current_state_dict = raw_model.state_dict()
+    for k, v in checkpoint["model_trainable_state_dict"].items():
+        if k in current_state_dict:
+            current_state_dict[k].copy_(v)
+        else:
+            if master_process is True:
+                logging.warning(f"Key {k} not found in model state dict.")
+    raw_model.load_state_dict(current_state_dict, strict=False)
+    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
+    if scheduler is not None and "scheduler_state_dict" in checkpoint:
+        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
+    if "epoch" in checkpoint:
+        epoch = checkpoint["epoch"] + 1
+        if master_process is True:
+            logging.info(f"Resuming training from epoch {epoch}")
+    else:
+        epoch = 0
+        if master_process is True:
+            logging.info("No epoch information found in checkpoint. Starting from epoch 0.")
+    if "global_steps" in checkpoint:
+        global_steps = checkpoint["global_steps"]
+        if master_process is True:
+            logging.info(f"Resuming training from global step {global_steps + 1}")
+    else:
+        global_steps = 0
+        if master_process is True:
+            logging.info("No global step information found in checkpoint. Starting from global step 0.")
+    return epoch, global_steps
+
+def save_checkpoint(
+    checkpoint_path: str,
+    model: torch.nn.Module,
+    optimizer: torch.optim.Optimizer,
+    scheduler = None,
+    epoch: int = None,
+    global_steps: int = None,
+    master_process: bool = False
+):
+    """
+    Saves a checkpoint containing only the trainable parts of the model,
+    along with the optimizer and scheduler states.
+    
+    This is useful when most parameters are frozen (e.g., vision encoders, 
+    spatial aggregators, vision queries) and only a subset (e.g., last FC layers
+    and layer norm layers) is being fine-tuned. 
+    
+    Args:
+        checkpoint_path (str): File path to save the checkpoint.
+        model (torch.nn.Module): The model (can be wrapped in DDP).
+        optimizer (torch.optim.Optimizer): The optimizer used for training.
+        scheduler (optional): Learning rate scheduler; its state is saved if provided.
+        epoch (int, optional): Current epoch number.
+        global_steps (int, optional): Total number of training steps completed.
+    """
+    os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
+    raw_model = model.module if hasattr(model, "module") else model
+    trainable_keys = [n for n, t in raw_model.named_parameters() if t.requires_grad]
+    trainable_state_dict = {k: v for k, v in raw_model.state_dict().items() if k in trainable_keys}
+    checkpoint = {
+        "model_trainable_state_dict": trainable_state_dict,
+        "optimizer_state_dict": optimizer.state_dict(),
+    }
+    if scheduler is not None:
+        checkpoint["scheduler_state_dict"] = scheduler.state_dict()
+    if epoch is not None:
+        checkpoint["epoch"] = epoch
+    if global_steps is not None:
+        checkpoint["global_steps"] = global_steps
+    torch.save(checkpoint, checkpoint_path)
+    if master_process is True:
+        logging.info(f"Checkpoint saved to {checkpoint_path}")
+
+
 def train(args):
-    ddp = int(os.environ.get("RANK", -1)) != -1
+    
     if ddp:
         assert torch.cuda.is_available(), "Distributed training requires CUDA"
         init_process_group(backend="nccl")
@@ -156,32 +254,56 @@ def train(args):
     )
     # AdamW optimizer for training
     optimizer = torch.optim.AdamW(
-        raw_model.parameters(),
-        lr=5e-7,         # Learning rate
-        weight_decay=0.0 # Weight decay
+        model.parameters(),
+        lr=args.learning_rate,
+        weight_decay=args.weight_decay,
     )
     loss_fnc = torch.nn.CrossEntropyLoss()
 
-    num_epochs: int = 1
+    num_epochs: int = args.num_train_epochs
+    start_epoch: int = 0
     num_training_steps = len(train_dataloader) * num_epochs
-    num_warmup_steps = int(0.03 * num_training_steps)  # 3% of training steps
-    scheduler = get_cosine_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=num_warmup_steps,
-        num_training_steps=num_training_steps
-    )   
+    num_warmup_steps = int(args.warmup_ratio * num_training_steps)  # warm up % of training steps
+    # scheduler = get_cosine_schedule_with_warmup(
+    #     optimizer,
+    #     num_warmup_steps=num_warmup_steps,
+    #     num_training_steps=num_training_steps
+    # )
+    min_lr = 0.0001
+    initial_lr = 0.01
+    def lr_lambda(current_step):
+        total_steps = 3
+        if current_step >= total_steps:
+            return min_lr / initial_lr
+        else:
+            return ((initial_lr - min_lr) * (1 - current_step / total_steps) + min_lr) / initial_lr
 
-    logging_steps: int = 10
-    eval_steps: int = 380
+    # Initialize the scheduler
+    scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
     global_steps: int = 0
-    for epoch in range(num_epochs):
+    if args.resume:
+        assert args.input_checkpoint_path is not None, "Checkpoint path is required for resuming training"
+        ( 
+            start_epoch, 
+            global_steps
+        ) = load_checkpoint(
+            args.input_checkpoint_path,
+            raw_model,
+            optimizer,
+            scheduler=scheduler,
+            master_process=master_process
+        )
+
+    logging_steps: int = args.logging_steps
+    eval_steps: int = args.eval_steps
+    for epoch in range(start_epoch, start_epoch + num_epochs):
         if ddp:
             # Ensure each process sees a different ordering at each epoch
             train_sampler.set_epoch(epoch)
         model.train()
         for batch_idx, (filenames, videos, image_sizes, labels) in enumerate(train_dataloader):
             if master_process:
-                logging.info(f'Epoch {epoch + 1}/{num_epochs}, batch {batch_idx + 1}/{len(train_dataloader)}')
+                logging.info(f'Epoch {epoch + 1}/{start_epoch + num_epochs}, batch {batch_idx + 1}/{len(train_dataloader)}')
             assert isinstance(videos, list), "List of videos features for each processor (vision encoder)"
             assert isinstance(videos[0], list) or isinstance(videos[0], torch.Tensor), "List of videos in the batch"
             assert isinstance(image_sizes, list) or isinstance(image_sizes, tuple), "List/Tuple of frame sizes of videos in the batch"
@@ -205,12 +327,18 @@ def train(args):
 
             if global_steps % logging_steps == 0 and master_process:
                 total_norm = sum(p.grad.detach().data.norm(2).item() ** 2 for p in model.parameters() if p.grad is not None) ** 0.5
-                logging.info(f'Epoch {epoch + 1}/{num_epochs}, global step: {global_steps}, loss={loss.item()}, clipped gradient norm: {total_norm:.4f}')
+                logging.info(f'Epoch {epoch + 1}/{start_epoch + num_epochs}, global step: {global_steps}, loss={loss.item()}, clipped gradient norm: {total_norm:.4f}')
                 for param_group in optimizer.param_groups:
                     cur_lr = param_group["lr"]
                     logging.info(f'lr: {cur_lr:.10f}')
 
-            do_eval = (global_steps % eval_steps == 0) or (epoch == num_epochs - 1 and batch_idx == len(train_dataloader) - 1)
+            do_eval = False
+            if args.eval_strategy == 'epoch':
+                do_eval = (batch_idx == len(train_dataloader) - 1)
+            elif args.eval_strategy == 'steps':
+                do_eval = (global_steps % eval_steps == 0)
+            if args.eval_on_final_epoch and epoch == num_epochs - 1 and batch_idx == len(train_dataloader) - 1:
+                do_eval = True
             if do_eval:
                 if ddp:
                     dist.barrier() # wait for all processes to finish before evaluation
@@ -271,6 +399,30 @@ def train(args):
                     logging.info(f"Evaluation macro precision: {prec_macro:.10f}, recall: {recall_macro:.10f}, f1: {f1_macro:.10f}")
                 model.train()
     
+            do_save = False
+            checkpoint_name = None
+            if args.save_strategy == 'epoch':
+                do_save = (batch_idx == len(train_dataloader) - 1)
+                if do_save:
+                    checkpoint_name = f'checkpoint-epoch{epoch}.pt'
+            elif args.save_strategy == 'steps':
+                do_save = (global_steps % eval_steps == 0)
+                if do_save:
+                    checkpoint_name = f'checkpoint-epoch{epoch}-steps{global_steps}.pt'
+            if do_save:
+                if master_process:
+                    logging.info(f'Saving checkpoint at epoch {epoch}, global step {global_steps}...')
+                checkpoint_path = os.path.join(args.output_checkpoint_path, checkpoint_name)
+                save_checkpoint(
+                    checkpoint_path,
+                    raw_model,
+                    optimizer,
+                    # scheduler=scheduler,
+                    # epoch=epoch,
+                    # global_steps=global_steps,
+                    master_process=master_process
+                )
+
     if ddp:
         destroy_process_group()
 
@@ -304,6 +456,18 @@ def train(args):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument(
+        '--input_checkpoint_path',
+        type=str,
+        default=None,
+        help="Path to the checkpoint file to load"
+    )
+    parser.add_argument(
+        '--output_checkpoint_path',
+        type=str,
+        required=True,
+        help="Path to save the checkpoint file"
+    )
     parser.add_argument(
         '--data_paths',
         type=str,
@@ -344,6 +508,60 @@ if __name__ == "__main__":
         help = 'Path to configuration file of encoders parameters'
     )
     parser.add_argument(
+        '--eval_strategy',
+        type=str,
+        default='epoch',
+        help='Evaluation strategy to use during training'
+    )
+    parser.add_argument(
+        '--save_strategy',
+        type=str,
+        default='epoch',
+        help='Save strategy to use during training'
+    )
+    parser.add_argument(
+        '--eval_on_final_epoch',
+        type=bool,
+        default=False,
+        help='Whether to evaluate on the final epoch'
+    )
+    parser.add_argument(
+        '--num_train_epochs',
+        type=int,
+        required=True,
+        help='Number of training epochs'
+    )
+    parser.add_argument(
+        '--warmup_ratio',
+        type=float,
+        required=True,
+        help='Warmup ratio for learning rate schedule'
+    )
+    parser.add_argument(
+        '--learning_rate',
+        type=float,
+        required=True,
+        help='Learning rate for the optimizer'
+    )
+    parser.add_argument(
+        '--weight_decay',
+        type=float,
+        required=True,
+        help='Weight decay for the optimizer'
+    )
+    parser.add_argument(
+        '--logging_steps',
+        type=int,
+        required=True,
+        help='Log every X updates steps'
+    )
+    parser.add_argument(
+        '--eval_steps',
+        type=int,
+        required=True,
+        help='Evaluate every X updates steps'
+    )
+    parser.add_argument(
         '--per_device_train_batch_size',
         type=int,
         default=1,
@@ -355,8 +573,13 @@ if __name__ == "__main__":
         default=1,
         help='Per-device eval batch size for running'
     )
+    parser.add_argument(
+        '--resume',
+        action="store_true",
+        help='Resume training from the last checkpoint'
+    )
     args = parser.parse_args()
-    os.makedirs(SAFETENSORS_PATH, exist_ok=True)
+    # os.makedirs(SAFETENSORS_PATH, exist_ok=True)
     # mp.set_start_method('spawn')
 
     train(args)
