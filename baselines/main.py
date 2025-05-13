@@ -84,9 +84,6 @@ def load_checkpoint(
         scheduler (optional): Learning rate scheduler; its state is loaded if provided.
     """
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
-    if master_process is True:
-        # logging.info(f"Load checkpoint keys: {checkpoint.keys()}")
-        logging.info(f"Load checkpoint:\n{checkpoint}")
     raw_model = model.module if hasattr(model, "module") else model
     current_state_dict = raw_model.state_dict()
     for k, v in checkpoint["model_trainable_state_dict"].items():
@@ -264,22 +261,22 @@ def train(args):
     start_epoch: int = 0
     num_training_steps = len(train_dataloader) * num_epochs
     num_warmup_steps = int(args.warmup_ratio * num_training_steps)  # warm up % of training steps
-    # scheduler = get_cosine_schedule_with_warmup(
-    #     optimizer,
-    #     num_warmup_steps=num_warmup_steps,
-    #     num_training_steps=num_training_steps
-    # )
-    min_lr = 0.0001
-    initial_lr = 0.01
-    def lr_lambda(current_step):
-        total_steps = 3
-        if current_step >= total_steps:
-            return min_lr / initial_lr
-        else:
-            return ((initial_lr - min_lr) * (1 - current_step / total_steps) + min_lr) / initial_lr
-
-    # Initialize the scheduler
-    scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
+    scheduler = get_cosine_schedule_with_warmup(
+        optimizer,
+        num_warmup_steps=num_warmup_steps,
+        num_training_steps=num_training_steps
+    )
+#    min_lr = 0.0001
+#    initial_lr = 0.01
+#    def lr_lambda(current_step):
+#        total_steps = 3
+#        if current_step >= total_steps:
+#            return min_lr / initial_lr
+#        else:
+#            return ((initial_lr - min_lr) * (1 - current_step / total_steps) + min_lr) / initial_lr
+#
+#    # Initialize the scheduler
+#    scheduler = LambdaLR(optimizer, lr_lambda=lr_lambda)
     global_steps: int = 0
     if args.resume:
         assert args.input_checkpoint_path is not None, "Checkpoint path is required for resuming training"

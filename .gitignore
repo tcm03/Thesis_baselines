@@ -1,3 +1,9 @@
 checkpoints/
 __pycache__/
-vision_encoders/__pycache__/
+backbones/__pycache__/
+backbones/language_models/__pycache__/
+backbones/vision_encoders/__pycache__/
+backbones/multimodal_projector/__pycache__/
+baselines/__pycache__/
+models/__pycache__/
+
