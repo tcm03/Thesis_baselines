@@ -10,6 +10,7 @@ class ModelArguments:
     version: Optional[str] = field(default="v0")
     freeze_backbone: bool = field(default=False)
     tune_mm_mlp_adapter: bool = field(default=False)
+    tune_lm_head: bool = field(default=False)
     vision_tower: Optional[str] = field(default=None)
     mm_vision_select_layer: Optional[int] = field(
         default=-1
@@ -87,6 +88,7 @@ class DataArguments:
 
 @dataclass
 class TrainingArguments(transformers.TrainingArguments):
+
     remove_unused_columns: bool = field(default=False)
     freeze_mm_mlp_adapter: bool = field(default=False)
     mpt_attn_impl: Optional[str] = field(default="triton")
@@ -108,6 +110,13 @@ class TrainingArguments(transformers.TrainingArguments):
     mm_projector_lr: Optional[float] = None
     group_by_modality_length: bool = field(default=False)
 
+    # If `"epoch"` or `"steps"` is chosen, saving will also be performed at the very end of training, always.
+    num_train_epochs: int = field(
+        default=1,
+        metadata={
+            "help": "Number of training epochs"
+        }
+    ) # HF implements as float (fraction of last epoch), but for the moment let's use int
     # @tcm: I'm worried that some version of transformers still use the deprecated 'evaluation_strategy' arg
     eval_strategy: str = field(
         default="epoch",
@@ -116,12 +125,6 @@ class TrainingArguments(transformers.TrainingArguments):
         }
     )
     # save_strategy is inherited from HF
-    # If `"epoch"` or `"steps"` is chosen, saving will also be performed at the very end of training, always.
-    num_train_epochs: int = field(
-        metadata={
-            "help": "Number of training epochs"
-        }
-    ) # HF implements as float (fraction of last epoch), but for the moment let's use int
     # warmup_ratio is inherited from HF
     # learning_rate is inherited from HF
     # weight_decay is inherited from HF
@@ -136,6 +139,7 @@ class TrainingArguments(transformers.TrainingArguments):
             "help": "Number of workers for the dataloader"
         }
     )
+
 
 # @dataclass
 # class CustomArguments:

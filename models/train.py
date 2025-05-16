@@ -1,7 +1,3 @@
-import sys
-sys.path.append('.')
-sys.path.append('..')
-
 import torch
 import torch.distributed as dist
 from torch.distributed import init_process_group, destroy_process_group
@@ -11,6 +7,7 @@ from torch.optim.lr_scheduler import LambdaLR # for verifying the correctness of
 
 import os
 import json
+from contextlib import nullcontext
 import argparse
 from typing import List, Dict
 from safetensors.torch import save_file
@@ -32,15 +29,10 @@ from supervised_dataset import make_supervised_data_module
 from grouped_sampler import LengthGroupedSampler
 from opti import get_optimizer
 
-# baseline libs
-from mm_datautils import process_video_frames
-from utils import *
-from preprocessor import CambrianConfig, CambrianMeta
-
 from collections import defaultdict
 import logging
 from multiprocessing import cpu_count
-from constants import *
+from backbones.constants import *
 
 
 
@@ -170,6 +162,72 @@ def save_checkpoint(
         logging.info(f"Checkpoint saved to {checkpoint_path}")
 
 
+def count_parameters(model, print_layers = False):
+    """
+    Print the number of frozen and trainable parameters in the model,
+    along with each layer's name, dtype, and trainability status.
+    """
+    frozen_params = 0
+    trainable_params = 0
+    trainable_layers = []
+
+    if print_layers:
+        # Print header for layer details
+        print(f"{'Layer Name':<40} {'Dtype':<15} {'Trainable':<10} {'Param #':<15}")
+        print("="*80)
+
+    # Iterate over all named parameters in the model
+    for name, param in model.named_parameters():
+        param_count = param.numel()
+        is_trainable = param.requires_grad
+        dtype = str(param.dtype)
+
+        if print_layers:
+            # Print layer details
+            print(f"{name:<40} {dtype:<15} {str(is_trainable):<10} {param_count:<15}")
+
+        # Accumulate parameter counts
+        if is_trainable:
+            trainable_params += param_count
+            trainable_layers.append(name)
+        else:
+            frozen_params += param_count
+
+    # Print summary
+    print("="*80)
+    print(f"Frozen parameters: {frozen_params}")
+    print(f"Trainable parameters: {trainable_params}")
+    print(f"Total parameters: {frozen_params + trainable_params}")
+    if print_layers:
+        print("\nTrainable layers:")
+        for layer in trainable_layers:
+            print(f"- {layer}")
+
+def forward_step(model, batch, device):
+    input_ids = batch["input_ids"].to(device)
+    labels = batch["labels"].to(device)
+    attention_mask = batch["attention_mask"].to(device)
+    position_ids = batch["position_ids"].to(device)
+    image_aux_attention_masks_list = [image_aux_attn_mask.to(device) for image_aux_attn_mask in batch["image_aux_attention_masks_list"]]
+    image_sizes = batch["image_sizes"]
+    images = None
+    if "images" in batch:
+        assert isinstance(batch["images"], list), "images must be a list for vision tower aux"
+        if isinstance(batch["images"][0], list):
+            images = [[img.to(device) for img in imgs] for imgs in batch["images"]]
+        else:
+            images = [image.to(device) for image in batch["images"]]
+    outputs = model(
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+        labels=labels,
+        images=images,
+        image_aux_attention_masks_list=image_aux_attention_masks_list,
+        image_sizes=image_sizes,
+    )
+    return outputs
+
 def train():
     
     if ddp:
@@ -217,6 +275,8 @@ def train():
     # pyre-fixme[16]: `DataClass` has no attribute `gradient_checkpointing`.
     if training_args.gradient_checkpointing:
         # @tcm: might look here: https://junbuml.ee/grad-flow-lora-grad-ckpt
+        model.config.use_cache = False # Disable KV-cache (mandatory with ckpt)
+        model.gradient_checkpointing_enable()
         if hasattr(model, "enable_input_require_grads"):
             model.enable_input_require_grads()
         else:
@@ -239,7 +299,8 @@ def train():
     conversation_lib.default_conversation = conversation_lib.conv_templates[
         model_args.version
     ]
-    print(f"Using conversation format: {conversation_lib.default_conversation.version}")
+    if master_process:
+        logging.info(f"Using conversation format: {conversation_lib.default_conversation.version}")
     # pyre-fixme[16]: `DataClass` has no attribute `vision_tower_aux_list`.
     if model_args.vision_tower_aux_list is not None:
         # pyre-fixme[16]: `DataClass` has no attribute `unfreeze_mm_vision_tower`.
@@ -307,7 +368,9 @@ def train():
             for name, param in model.named_parameters():
                 if any(listed_name in name for listed_name in tune_modules):
                     param.requires_grad = True
-
+        if model_args.tune_lm_head:
+            for p in model.lm_head.parameters():
+                p.requires_grad = True
         model.config.freeze_mm_mlp_adapter = training_args.freeze_mm_mlp_adapter  # pyre-fixme
         if training_args.freeze_mm_mlp_adapter:
             for p in model.get_model().mm_projector.parameters():
@@ -338,6 +401,7 @@ def train():
         model.initialize_vision_tokenizer(model_args, tokenizer=tokenizer)
     
     model.to(torch.bfloat16)
+    model.to(device)
     # pyre-fixme
     def convert_bn_to_float(model):
         if isinstance(model, torch.nn.modules.batchnorm._BatchNorm):
@@ -347,6 +411,20 @@ def train():
         return model
 
     model = convert_bn_to_float(model)
+    if master_process:
+        logging.info(f'CambrianLlamaForCausalLM after config: mem allocated: {torch.cuda.memory_allocated() / 1024**2:.2f} MB, mem reserved: {torch.cuda.memory_reserved() / 1024**2:.2f} MB')
+        count_parameters(model, print_layers = True)
+        logging.info(f"gradient_checkpointing: {model.is_gradient_checkpointing}")
+    if ddp:
+        model = DDP(model, device_ids=[ddp_local_rank])
+
+    # test tokenizer by encoding "This video is great" and then decode back
+    # test_str = "This video is great"
+    # test_tokens = tokenizer.encode(test_str)
+    # tmp_ids = torch.tensor([271, 17, 2835, 4478, 315, 220, 13])
+    # test_decoded = tokenizer.decode(tmp_ids)
+    # logging.info(f'test_str: {test_str}, test_tokens: {test_tokens}, test_decoded: {test_decoded}')
+    # return
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
     train_dataset = data_module["train_dataset"]
     eval_dataset = data_module["eval_dataset"]
@@ -393,14 +471,15 @@ def train():
 
     num_epochs: int = training_args.num_train_epochs
     start_epoch: int = 0
-    num_training_steps = len(train_dataloader) * num_epochs
+    gradient_accumulation_steps: int = int(training_args.gradient_accumulation_steps)
+    num_training_steps = (len(train_dataloader) + gradient_accumulation_steps - 1) // gradient_accumulation_steps * num_epochs
     num_warmup_steps = int(training_args.warmup_ratio * num_training_steps)  # warm up % of training steps
     scheduler = get_cosine_schedule_with_warmup(
         optimizer,
         num_warmup_steps=num_warmup_steps,
         num_training_steps=num_training_steps
     )
-    global_steps: int = 0
+    
     # if training_args.resume:
     #     assert custom_args.input_checkpoint_path is not None, "Checkpoint path is required for resuming training"
     #     ( 
@@ -413,60 +492,48 @@ def train():
     #         scheduler=scheduler,
     #         master_process=master_process
     #     )
-
+    global_steps: int = 0
     logging_steps: int = int(training_args.logging_steps)
     eval_steps: int = int(training_args.eval_steps)
+    # optimizer.zero_grad(set_to_none=True)
+
     for epoch in range(start_epoch, start_epoch + num_epochs):
         if ddp:
             # Ensure each process sees a different ordering at each epoch
             # train_sampler.set_epoch(epoch)
             generator.manual_seed(GLOBAL_SEED + epoch)
         model.train()
+        loss_accum = torch.zeros(1, device=device)
         for batch_idx, batch in enumerate(train_dataloader):
             if master_process:
                 logging.info(f'Epoch {epoch + 1}/{start_epoch + num_epochs}, batch {batch_idx + 1}/{len(train_dataloader)}')
 
-            input_ids = batch["input_ids"].to(device)
-            labels = batch["labels"].to(device)
-            attention_mask = batch["attention_mask"].to(device)
-            position_ids = batch["position_ids"].to(device)
-            image_aux_attention_masks_list = [image_aux_attn_mask.to(device) for image_aux_attn_mask in batch["image_aux_attention_masks_list"]]
-            image_sizes = batch["image_sizes"]
-            images = None
-            if "images" in batch:
-                images = [image.to(device) for image in batch["images"]]
-
-            optimizer.zero_grad()
-
-            # pred_logits = model(input_ids, attention_mask, position_ids, labels, images, image_aux_attention_masks_list, image_sizes)
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                labels=labels,
-                images=images,
-                image_aux_attention_masks_list=image_aux_attention_masks_list,
-                image_sizes=image_sizes,
-            )
-            loss = outputs[0]
-            logits = outputs[1]
-            if master_process:
-                logging.info(f'loss: {loss.item()}, logits: {logits}')
-            continue # testing
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.)
-
-            optimizer.step()
-            scheduler.step()
-            torch.cuda.synchronize() # wait for the GPU to finish work
-            global_steps += 1
-
-            if global_steps % logging_steps == 0 and master_process:
-                total_norm = sum(p.grad.detach().data.norm(2).item() ** 2 for p in model.parameters() if p.grad is not None) ** 0.5
-                logging.info(f'Epoch {epoch + 1}/{start_epoch + num_epochs}, global step: {global_steps}, loss={loss.item()}, clipped gradient norm: {total_norm:.4f}')
-                for param_group in optimizer.param_groups:
-                    cur_lr = param_group["lr"]
-                    logging.info(f'lr: {cur_lr:.10f}')
+            is_last_micro = ((batch_idx + 1) % gradient_accumulation_steps == 0) or (batch_idx == len(train_dataloader) - 1)
+            # DDP: skip gradient synchronisation on all but final micro-step
+            ddp_context = model.no_sync() if (ddp and not is_last_micro) else nullcontext()
+            with ddp_context:
+                outputs = forward_step(model, batch, device)
+                loss = outputs.loss
+                loss = loss / gradient_accumulation_steps
+                loss_accum += loss.detach()
+                loss.backward()
+            if is_last_micro:
+                #   Update weights every accum_steps mini-batches
+                torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad(set_to_none=True)              # clear for next cycle
+                global_steps += 1
+                if ddp:
+                    dist.all_reduce(loss_accum, op=dist.ReduceOp.AVG)
+                if global_steps % logging_steps == 0 and master_process:
+                    total_norm = sum(p.grad.detach().data.norm(2).item() ** 2 for p in model.parameters() if p.grad is not None) ** 0.5
+                    logging.info(f'Epoch {epoch + 1}/{start_epoch + num_epochs}, global step: {global_steps}, loss={loss_accum.item():.10f}, clipped gradient norm: {total_norm:.4f}')
+                    for param_group in optimizer.param_groups:
+                        cur_lr = param_group["lr"]
+                        logging.info(f'lr: {cur_lr:.10f}')
+                loss_accum.zero_()        # reset tensor, keeps same device
+                # torch.cuda.synchronize() # wait for the GPU to finish work
 
             do_eval = False
             if training_args.eval_strategy == 'epoch':
@@ -476,6 +543,7 @@ def train():
             # If `"epoch"` or `"steps"` is chosen, saving will also be performed at the very end of training, always.
             if epoch == num_epochs - 1 and batch_idx == len(train_dataloader) - 1:
                 do_eval = True
+            do_eval = False # for now
             if do_eval:
                 if ddp:
                     dist.barrier() # wait for all processes to finish before evaluation
@@ -484,7 +552,7 @@ def train():
                 device_loss = 0.
                 device_samples = 0
                 device_preds, device_gold_labels = [], []
-                for eval_batch_idx, (eval_filenames, eval_videos, eval_image_sizes, eval_labels) in enumerate(eval_dataloader):
+                for eval_batch_idx, eval_batch in enumerate(eval_dataloader):
                     if master_process:
                         logging.info(f'After epoch {epoch + 1}, eval batch {eval_batch_idx+1}/{len(eval_dataloader)}')
                     for i, videos_aux in enumerate(eval_videos):

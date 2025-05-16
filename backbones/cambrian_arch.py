@@ -29,9 +29,9 @@ from backbones.constants import (
     IMAGE_TOKEN_INDEX,
 )
 
-from .vision_encoders.builder import build_vision_tower_aux_list
-from .multimodal_projector.builder import build_vision_projector
-from .vision_sampler import VisionTokenSampler
+from backbones.vision_encoders.builder import build_vision_tower_aux_list
+from backbones.multimodal_projector.builder import build_vision_projector
+from backbones.vision_sampler import VisionTokenSampler
 
 import logging
 
@@ -53,9 +53,9 @@ class CambrianMetaModel:
                 query_num_list = config.query_num_list
                 connector_only = config.connector_only
                 connector_depth = config.connector_depth
-                self.vision_tower_aux_list = build_vision_tower_aux_list(
+                self.vision_tower_aux_list = nn.ModuleList(build_vision_tower_aux_list(
                     config, delay_load=True
-                )
+                ))
                 self.mm_projector = nn.Sequential(
                     nn.Linear(vision_hidden_size * num_query_group, config.hidden_size),
                     nn.GELU(),
@@ -815,7 +815,12 @@ class CambrianMetaForCausalLM(ABC):
 
         # batch videos of same duration: [torch.Tensor([bs, # frames, C, H, W]), torch.Tensor([bs, # frames, C, H, W])]
         # batch videos of diff duration: [[torch.Tensor([vid1 # frames, C, H, W]), ...], [torch.Tensor([vid1 # frames, C, H, W]), ...]]
-        image_aux_list = images
+        # @tcm: Make sure input video frames (images) are in the same dtype as the model
+        model_dtype = self.get_vision_tower_aux_list()[0].dtype
+        if isinstance(images[0], list):
+            image_aux_list = [[image.to(dtype=model_dtype) for image in image_aux] for image_aux in images]
+        else:
+            image_aux_list = [image.to(dtype=model_dtype) for image in images]
 
         split_sizes = None
 

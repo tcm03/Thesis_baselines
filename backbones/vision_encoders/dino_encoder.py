@@ -116,7 +116,8 @@ class DinoVisionTower(BaseVisionTower):
             )
             # print(f'@tcm: In DinoVisionTower._forward(): Dinov2Model.forward()... done in {time.time() - dinov2model_start_time} seconds')
             # logger.warning(f"image_forward_outs shape: {image_forward_outs['last_hidden_state'].shape}")
-            image_features = self.feature_select(image_forward_outs).to(images.dtype)
+            # image_features = self.feature_select(image_forward_outs).to(images.dtype)
+            image_features = self.feature_select(image_forward_outs) # keep it at bf16
             # logger.warning(f"image_features shape: {image_features.shape}")
             interp_features = self.interpolate(image_features)
             # logger.warning(f"interp_features shape: {interp_features.shape}")

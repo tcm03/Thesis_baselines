@@ -1,5 +1,5 @@
-from transforminer import ALL_LAYERNORM_LAYERS, get_parameter_names, has_length
-ers.tra
+from transformers.trainer import ALL_LAYERNORM_LAYERS, get_parameter_names, has_length
+from transformers import Trainer
 
 def get_optimizer(opt_model, training_args):
 

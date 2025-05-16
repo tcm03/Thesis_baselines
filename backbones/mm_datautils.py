@@ -13,9 +13,9 @@ import torch
 
 import transformers
 
-import conversation as conversation_lib
+import backbones.conversation as conversation_lib
 
-from constants import (
+from backbones.constants import (
     DEFAULT_IM_END_TOKEN,
     DEFAULT_IM_START_TOKEN,
     DEFAULT_IMAGE_TOKEN,
@@ -42,7 +42,7 @@ IS_TOKENIZER_GREATER_THAN_0_14 = version.parse(tokenizers.__version__) >= versio
 )
 from transformers import StoppingCriteria
 
-from mm_utils import KeywordsStoppingCriteria
+from backbones.mm_utils import KeywordsStoppingCriteria
 
 
 # pyre-fixme[3]: Return type must be annotated.
@@ -808,8 +808,8 @@ def preprocess_llama3(
     input_ids = torch.tensor(input_ids, dtype=torch.long)
     targets = torch.tensor(targets, dtype=torch.long)
 
-    print("input_ids", input_ids, flush=True)
-    print("targets", targets, flush=True)
+    # print("input_ids", input_ids, flush=True)
+    # print("targets", targets, flush=True)
 
     return dict(
         input_ids=input_ids,  # tensor(bs x seq_len)

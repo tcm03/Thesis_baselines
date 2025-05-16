@@ -1,7 +1,4 @@
-import sys
-sys.path.append('.')
-sys.path.append('..')
-
+import logging
 import json
 import os
 import copy
@@ -12,6 +9,8 @@ from torch.utils.data import Dataset
 import transformers
 from typing import Dict, Sequence, List
 from dataclasses import dataclass, field
+
+from decord import cpu, VideoReader
 
 from backbones.constants import IGNORE_INDEX, IMAGE_TOKEN_INDEX
 from models.multimodal_prep import prepare_multimodal_data
@@ -35,6 +34,7 @@ class LazySupervisedDataset(Dataset):
             list_data_dict.extend(json.load(open(data_path, "r")))
 
         self.tokenizer = tokenizer
+        self.data_paths = data_paths
         # pyre-fixme[4]: Attribute must be annotated.
         self.list_data_dict = list_data_dict
         # pyre-fixme[4]: Attribute must be annotated.
@@ -117,10 +117,10 @@ class LazySupervisedDataset(Dataset):
             sources = [sources]
         assert len(sources) == 1, "Don't know why it is wrapped to a list"  # FIXME
         has_image = self._has_image(dat)
+        image_folders = self.data_args.image_folders
         if has_image:
             if "image" in dat:
                 image_file = dat["image"]
-                image_folders = self.data_args.image_folders
                 image_folder = None
                 for img_folder in image_folders:
                     if os.path.exists(os.path.join(img_folder, image_file)):
@@ -184,6 +184,8 @@ class LazySupervisedDataset(Dataset):
                                 )
                             image_size = image[0].size
                         else:
+                            if int(os.environ['RANK']) == 0:
+                                logging.info(f'In LazySupervisedDataset.__getitem__(): video_file: {video_file}')
                             vr = VideoReader(video_file, ctx=cpu(0), num_threads=1)
                             sample_fps = round(
                                 vr.get_avg_fps() / self.data_args.video_fps

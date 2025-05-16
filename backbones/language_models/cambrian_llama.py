@@ -14,6 +14,7 @@
 
 
 from typing import List, Optional, Tuple, Union
+import os
 
 import torch
 import torch.nn as nn
@@ -39,6 +40,7 @@ from transformers.modeling_outputs import (
     BaseModelOutputWithPast,
     CausalLMOutputWithPast,
 )
+from models.model_outputs import CustomCausalLMOutputWithPast
 from transformers.utils import logging as lgging
 
 from ..cambrian_arch import CambrianMetaForCausalLM, CambrianMetaModel
@@ -221,7 +223,6 @@ class CambrianLlamaModel(CambrianMetaModel, LlamaModel):
                     use_cache=use_cache,
                 )
             # layer_outputs[0].shape: [bs, seq_len, 3072], e.g. bs = 1 and seq_len = 1297
-
             hidden_states = layer_outputs[0]
 
             if use_cache:
@@ -229,7 +230,6 @@ class CambrianLlamaModel(CambrianMetaModel, LlamaModel):
 
             if output_attentions:
                 all_self_attns += (layer_outputs[1],)
-
         # pyre-fixme[16]: `CambrianLlamaModel` has no attribute `norm`.
         hidden_states = self.norm(hidden_states)
 
@@ -305,7 +305,13 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
         #     logging.info(f"@tcm: In CambrianLlamaForCausalLM.forward(): labels.shape: {labels.shape}")
         # input_ids.shape: [bs, seq_len], e.g. bs = 1 and seq_len = 8192
         # labels.shape: [bs, seq_len], e.g. bs = 1 and seq_len = 8192
-
+        # if int(os.environ['RANK']) == 0:
+        #     logging.info(f'@tcm: In cambrian_llama: Before prepare_inputs_labels_for_multimodal')
+        #     if input_ids is not None:
+        #         logging.info(f'input_ids.shape: {input_ids.shape}')
+        #     if labels is not None:
+        #         logging.info(f'labels.shape: {labels.shape}')
+        
         if inputs_embeds is None:
             (
                 input_ids,
@@ -328,6 +334,14 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
                 image_aux_attention_masks_list,
                 image_sizes,
             )
+
+        # if int(os.environ['RANK']) == 0:
+        #     logging.info(f'@tcm: In cambrian_llama: After prepare_inputs_labels_for_multimodal')
+        #     if labels is not None:
+        #         logging.info(f'labels.shape: {labels.shape}')
+        #     if inputs_embeds is not None:
+        #         logging.info(f'inputs_embeds.shape: {inputs_embeds.shape}')
+
         if IS_XLA_AVAILABLE:
             # Very Important for TorchXLA
             # self.model.gradient_checkpointing = False
@@ -475,12 +489,13 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
             loss = loss_fct(shift_logits, shift_labels)
 
         if not return_dict:
-            output = (logits,) + outputs[1:]
+            output = (logits, labels) + outputs[1:]
             return (loss,) + output if loss is not None else output
 
-        return CausalLMOutputWithPast(
+        return CustomCausalLMOutputWithPast(
             loss=loss,
             logits=logits,
+            labels=labels,
             past_key_values=outputs.past_key_values,
             hidden_states=outputs.hidden_states,
             attentions=outputs.attentions,

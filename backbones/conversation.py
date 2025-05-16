@@ -4,7 +4,7 @@ from enum import auto, Enum
 from io import BytesIO
 from typing import Any, Dict, List, Tuple, Union
 
-from longvu.file_io import PathManager
+from backbones.file_io import PathManager
 
 from PIL import Image
 from transformers import AutoTokenizer
