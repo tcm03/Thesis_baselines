@@ -14,6 +14,7 @@
 
 
 import math
+import os
 import random
 from abc import ABC, abstractmethod
 
@@ -27,6 +28,7 @@ from backbones.constants import (
     DEFAULT_IMAGE_PATCH_TOKEN,
     IGNORE_INDEX,
     IMAGE_TOKEN_INDEX,
+    CLS_TOKEN_INDEX,
 )
 
 from backbones.vision_encoders.builder import build_vision_tower_aux_list
@@ -1341,13 +1343,15 @@ class CambrianMetaForCausalLM(ABC):
         # remove the padding using attention_mask -- FIXME
         _input_ids = input_ids
 
-        attention_mask = attention_mask | (input_ids == IMAGE_TOKEN_INDEX)
+        attention_mask = attention_mask | (input_ids == IMAGE_TOKEN_INDEX) | (input_ids == CLS_TOKEN_INDEX)
         # logging.info(f"attention mask: {attention_mask[..., :100]}")
         # logging.info("after masking")
         input_ids = [
             cur_input_ids[cur_attention_mask]
             for cur_input_ids, cur_attention_mask in zip(input_ids, attention_mask)
         ]
+        # if int(os.environ.get("RANK", 0)) == 0:
+        #     logging.info(f"input_ids[0] = {input_ids[0]}")
         # for i, input_id in enumerate(input_ids):
             # logging.info(f"input_ids[{i}].shape = {input_id.shape}")
             # logging.info(f"input_ids[{i}][0:100] = {input_id[0:100]}")
@@ -1361,6 +1365,7 @@ class CambrianMetaForCausalLM(ABC):
 
         new_input_embeds = []
         new_labels = []
+        new_cls_pos = []
         image_token_indices_batch = []
         cur_image_idx = 0
         for batch_idx, cur_input_ids in enumerate(input_ids):
@@ -1396,11 +1401,17 @@ class CambrianMetaForCausalLM(ABC):
                 cur_labels_noim.append(
                     cur_labels[image_token_indices[i] + 1 : image_token_indices[i + 1]]
                 )
+            # if int(os.environ.get("RANK", 0)) == 0:
+            #     logging.info(f"At input_ids[{batch_idx}]: cur_input_ids_noim = {cur_input_ids_noim}")
             split_sizes = [x.shape[0] for x in cur_labels_noim]
+            # if int(os.environ.get("RANK", 0)) == 0:
+            #     logging.info(f"At input_ids[{batch_idx}]: cur_input_ids_noim[-1] = {cur_input_ids_noim[-1]}")
             cur_input_embeds = self.get_model().embed_tokens(
                 torch.cat(cur_input_ids_noim)
             )
             cur_input_embeds_no_im = torch.split(cur_input_embeds, split_sizes, dim=0)
+            # if int(os.environ.get("RANK", 0)) == 0:
+            #     logging.info(f"At input_ids[{batch_idx}]: len(cur_input_embeds_no_im) = {len(cur_input_embeds_no_im)}, cur_input_embeds_no_im[0].shape = {cur_input_embeds_no_im[0].shape}, cur")
             cur_new_input_embeds = []
             cur_new_labels = []
 
@@ -1537,11 +1548,19 @@ class CambrianMetaForCausalLM(ABC):
 
                 image_features[cur_image_idx] = new_visual_emb_frames[:max_visual_len]
 
+            cls_pos = -1
+            pos_cnt = 0
             for i in range(num_images + 1):
+                for j, tok_id in enumerate(cur_input_ids_noim[i]):
+                    if tok_id == CLS_TOKEN_INDEX:
+                        cls_pos = pos_cnt + j
+                        break
                 cur_new_input_embeds.append(cur_input_embeds_no_im[i])
                 cur_new_labels.append(cur_labels_noim[i])
+                pos_cnt += len(cur_input_ids_noim[i])
                 if i < num_images:
                     cur_image_features = image_features[cur_image_idx]
+                    pos_cnt += cur_image_features.shape[0]
                     cur_image_idx += 1
                     cur_new_input_embeds.append(cur_image_features)
                     cur_new_labels.append(
@@ -1552,7 +1571,7 @@ class CambrianMetaForCausalLM(ABC):
                             dtype=cur_labels.dtype,
                         )
                     )
-
+            assert cls_pos != -1, "CLS token not found"
             cur_new_input_embeds = [x.to(self.device) for x in cur_new_input_embeds]
 
             cur_new_input_embeds = torch.cat(cur_new_input_embeds)
@@ -1560,6 +1579,8 @@ class CambrianMetaForCausalLM(ABC):
 
             new_input_embeds.append(cur_new_input_embeds)
             new_labels.append(cur_new_labels)
+
+            new_cls_pos.append(cls_pos)
 
         # Truncate sequences to max length as image embeddings can make the sequence longer
         tokenizer_model_max_length = getattr(
@@ -1666,6 +1687,7 @@ class CambrianMetaForCausalLM(ABC):
             past_key_values,
             new_input_embeds, # (B, largest vid # frames * 6 * 13, LLM hidden dim)
             new_labels, # (B, largest vid # frames * 6 * 13)
+            new_cls_pos, # (B)
             vision_tower_aux_feature_list_final,
             vision_tower_aux_attention_masks_list_final,
             final_size,
@@ -1725,3 +1747,15 @@ class CambrianMetaForCausalLM(ABC):
                     p.requires_grad = False
                 for p in self.get_output_embeddings().parameters():
                     p.requires_grad = False
+
+        num_new = tokenizer.add_special_tokens({"cls_token": "<cls>"})
+        self.resize_token_embeddings(len(tokenizer))
+        if num_new:                                           # should be 1
+            with torch.no_grad():
+                inp = self.get_input_embeddings().weight      # [vocab+1, d]
+                out = self.get_output_embeddings().weight     # tied lm_head
+
+                # ①  mean-initialisation  (fast convergence, popular in Unsloth & LLaVA)
+                mean_vec = inp[:-num_new].mean(dim=0, keepdim=True)
+                inp[-num_new:] = mean_vec
+                # out[-num_new:] = mean_vec # we don't generate <cls> token so now need to initialize the lm head

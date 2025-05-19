@@ -1,3 +1,4 @@
+from models.utils import log_rank0
 import os
 from typing import Dict, List, Optional
 
@@ -10,16 +11,24 @@ from torch.utils.data import DataLoader, Sampler
 # pyre-fixme[2]: Parameter must be annotated.
 def split_to_even_chunks(indices, lengths, num_chunks):
     """
-    Split a list of indices into `chunks` chunks of roughly equal lengths.
+    Args:
+        indices: list of indices
+        lengths: list of lengths of those indices
+        num_chunks: number of chunks to split the indices into
 
-    @tcm
-    Goal: Given a flat list of sample indices plus their “lengths,” split 
-    them into num_chunks groups so that each group has (roughly) the same 
-    total length and the same number of indices.
+    Returns:
+        list of chunks of length num_chunks, each chunk is a list of indices
 
-    Why: When you later divide work across world_size workers, you don’t want 
-    one rank to get all the long samples and another rank only shorts. This 
-    evens out both sample count and aggregate length.
+    Description:
+        Split a list of indices into `chunks` chunks of roughly equal lengths.
+
+        Goal: Given a flat list of sample indices plus their “lengths,” split 
+        them into num_chunks groups so that each group has (roughly) the same 
+        total length and (roughly) the same number of indices.
+
+        Why: When you later divide work across world_size workers, you don’t want 
+        one rank to get all the long samples and another rank only shorts. This 
+        evens out both sample count and aggregate length.
     """
 
     if len(indices) % num_chunks != 0:
@@ -46,12 +55,26 @@ def get_length_grouped_indices(
     lengths, batch_size, world_size, generator=None, merge=True
 ):
     """
-    @tcm
-    Goal: Produce a single flat list of all dataset indices, such that:
-    1. The data are arranged in megabatches of size world_size * batch_size.
-    2. Within each megabatch, indices are sorted by descending length (so long items get batched together).
-    3. Each megabatch is then split into world_size even-length chunks (via split_to_even_chunks), and these 
-    chunks are interleaved to form the final order.
+    Args:
+        lengths: list of modality lengths of each video (negative)
+        batch_size: per-device batch size
+        world_size: number of devices in distributed group
+        generator: random number generator
+        merge: not used
+
+    Returns:
+        list of reordered indices of videos in the original dataset, flattened from
+            megabatches: list of megabatchs (whole dataset split into megabatches randomly)
+            megabatch: list of batches (of length world_size, split by split_to_even_chunks function)
+            batch: list of indices
+
+    Description:
+        Produce a single flat list of all dataset indices, such that:
+        1. The data are arranged in megabatches of size world_size * batch_size.
+        2. Within each megabatch, indices are sorted by descending length in negative values
+         (ascending lengths in real values: -1, -3, -7, -12, ...).
+        3. Each megabatch is then split into world_size even-length chunks (via split_to_even_chunks), and these 
+        chunks are interleaved to form the final order.
     """
     # We need to use torch for the random part as a distributed sampler will set the random seed for torch.
     indices = torch.randperm(len(lengths), generator=generator)
@@ -64,13 +87,14 @@ def get_length_grouped_indices(
         sorted(megabatch, key=lambda i: lengths[i], reverse=True)
         for megabatch in megabatches
     ]
+    # for mb, megabatch in enumerate(megabatches):
+    #     log_rank0(f"megabatches[{mb}] = {megabatch}")
     megabatches = [
         split_to_even_chunks(megabatch, lengths, world_size)
         for megabatch in megabatches
     ]
-    # @tcm
-    # Finally flatten: for each megabatch, for each chunk, emit its indices in order. That gives 
-    # you a single list you can feed directly into a DataLoader with sampler=None.
+    # log_rank0(f"get_length_grouped_indices returns: {[i for megabatch in megabatches for batch in megabatch for i in batch]}")
+    # @tcm: return [mb0_r0_id0, mb0_r0_id1, ..., mb0_r1_id0, mb0_r1_id1, ..., mb1_r0_id0, ...]
     return [i for megabatch in megabatches for batch in megabatch for i in batch]
 
 
@@ -89,7 +113,6 @@ def get_modality_length_grouped_indices(
         )
     mm_indices, mm_lengths = zip(*[(i, l) for i, l in enumerate(lengths) if l > 0])
     lang_indices, lang_lengths = zip(*[(i, -l) for i, l in enumerate(lengths) if l < 0])
-
     mm_shuffle = [
         mm_indices[i]
         for i in get_length_grouped_indices(
@@ -151,7 +174,7 @@ class LengthGroupedSampler(Sampler):
         self.group_by_modality = group_by_modality
 
     def __len__(self):
-        return len(self.lengths) # @tcm: number of samples (video/ json item) in the dataset
+        return int(len(self.lengths) // self.world_size) # @tcm: number of samples (video/ json item) in the dataset
 
     def __iter__(self):
         if self.group_by_modality:
@@ -162,4 +185,11 @@ class LengthGroupedSampler(Sampler):
             indices = get_length_grouped_indices(
                 self.lengths, self.batch_size, self.world_size, generator=self.generator
             )
-        return iter(indices)
+        rank = int(os.environ.get("RANK", 0))
+        expected_split_size = len(indices) // self.world_size
+        # mb0_r0_i0, mb0_r0_i1, mb0_r1_i0, mb0_r1_i1, mb1_r0_i0, mb1_r0_i1, mb1_r1_i0, mb1_r1_i1, mb2_r0_i0, mb2_r0_i1, mb2_r1_i0
+        rank_indices = []
+        for i in range(rank * self.batch_size, len(indices), self.batch_size * self.world_size):
+            rank_indices.extend(indices[i:i+self.batch_size])
+        rank_indices = rank_indices[:expected_split_size]
+        return iter(rank_indices)

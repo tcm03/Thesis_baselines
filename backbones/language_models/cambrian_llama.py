@@ -270,6 +270,8 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
         self.pretraining_tp = config.pretraining_tp
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
+        # @tcm: Attempt special cls token
+        self.cls_head = nn.Linear(config.hidden_size, 3, bias=False)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -286,6 +288,7 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
         past_key_values: Optional[List[torch.FloatTensor]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
         labels: Optional[torch.LongTensor] = None,
+        eng_classes: Optional[torch.LongTensor] = None,
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
@@ -294,24 +297,13 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
         image_sizes: Optional[List[List[int]]] = None,
         return_dict: Optional[bool] = None,
         cache_position=None,
+        cls_only=False
     ) -> Union[Tuple, CausalLMOutputWithPast]:
 
         final_vision_feature_size = None
-        # if input_ids is not None:
-        #     logging.info(f"@tcm: In CambrianLlamaForCausalLM.forward(): input_ids.shape: {input_ids.shape}")
-        # if inputs_embeds is not None:
-        #     logging.info(f"@tcm: In CambrianLlamaForCausalLM.forward(): inputs_embeds.shape: {inputs_embeds.shape}")
-        # if labels is not None:
-        #     logging.info(f"@tcm: In CambrianLlamaForCausalLM.forward(): labels.shape: {labels.shape}")
         # input_ids.shape: [bs, seq_len], e.g. bs = 1 and seq_len = 8192
         # labels.shape: [bs, seq_len], e.g. bs = 1 and seq_len = 8192
-        # if int(os.environ['RANK']) == 0:
-        #     logging.info(f'@tcm: In cambrian_llama: Before prepare_inputs_labels_for_multimodal')
-        #     if input_ids is not None:
-        #         logging.info(f'input_ids.shape: {input_ids.shape}')
-        #     if labels is not None:
-        #         logging.info(f'labels.shape: {labels.shape}')
-        
+        cls_pos = None
         if inputs_embeds is None:
             (
                 input_ids,
@@ -320,6 +312,7 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
                 past_key_values,
                 inputs_embeds,
                 labels,
+                cls_pos,
                 vision_tower_aux_feature_list,
                 vision_tower_aux_attention_masks_list,
                 final_vision_feature_size,
@@ -334,13 +327,7 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
                 image_aux_attention_masks_list,
                 image_sizes,
             )
-
-        # if int(os.environ['RANK']) == 0:
-        #     logging.info(f'@tcm: In cambrian_llama: After prepare_inputs_labels_for_multimodal')
-        #     if labels is not None:
-        #         logging.info(f'labels.shape: {labels.shape}')
-        #     if inputs_embeds is not None:
-        #         logging.info(f'inputs_embeds.shape: {inputs_embeds.shape}')
+        assert cls_pos is not None, "Batch CLS token positions not found"
 
         if IS_XLA_AVAILABLE:
             # Very Important for TorchXLA
@@ -460,7 +447,15 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
                     # final_vision_feature_size=final_vision_feature_size,
                 )
 
-        hidden_states = outputs[0] # outputs[0].shape: [bs, seq_len, 3072], e.g. bs = 1 and seq_len = 1297
+        # hidden_states = outputs[0] # outputs[0].shape: [bs, seq_len, 3072], e.g. bs = 1 and seq_len = 1297
+        # @tcm: attempt special cls token (assume last token is cls, for now)
+        hidden_states = outputs[0]
+        assert hidden_states.shape[0] == len(cls_pos), f"Batch size of hidden states different from batch size of cls_pos"
+        cls_states = []
+        for i, pos in enumerate(cls_pos):
+            cls_states.append(hidden_states[i, pos, :])
+        cls_states = torch.stack(cls_states, dim=0)
+        assert cls_states.shape == (hidden_states.shape[0], hidden_states.shape[2]), f"Shape of cls_states different from shape of hidden_states"
         if self.config.pretraining_tp > 1:
             lm_head_slices = self.lm_head.weight.split(
                 self.vocab_size // self.config.pretraining_tp, dim=0
@@ -471,30 +466,46 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
             ]
             logits = torch.cat(logits, dim=-1)
         else:
-            logits = self.lm_head(hidden_states) # logits.shape: [bs, seq_len, vocab_size], e.g. bs = 1, seq_len = 1297, vocab_size = 128256
-        logits = logits.float()
-        # logging.info(f"@tcm: In CambrianLlamaForCausalLM.forward(): logits.shape: {logits.shape}")
+            if not cls_only:
+                logits = self.lm_head(hidden_states) # logits.shape: [bs, seq_len, vocab_size], e.g. bs = 1, seq_len = 1297, vocab_size = 128256
+                logits = logits.float()
+            # @tcm: attempt special cls token
+            cls_logits = self.cls_head(cls_states) # [bs, 3]
+            cls_logits = cls_logits.float()
 
         loss = None
+        # assert labels is not None, "@tcm: for eng_classes and labels, labels must not be None"
         if labels is not None:
-            # Shift so that tokens < n predict n
-            shift_logits = logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-            # Flatten the tokens
-            loss_fct = CrossEntropyLoss()
-            shift_logits = shift_logits.view(-1, self.config.vocab_size)
-            shift_labels = shift_labels.view(-1)
-            # Enable model parallelism
-            shift_labels = shift_labels.to(shift_logits.device)
-            loss = loss_fct(shift_logits, shift_labels)
+            txt_loss = None
+            if not cls_only:
+                # Shift so that tokens < n predict n
+                shift_logits = logits[..., :-1, :].contiguous()
+                shift_labels = labels[..., 1:].contiguous()
+                # Flatten the tokens
+                loss_fct = CrossEntropyLoss()
+                shift_logits = shift_logits.view(-1, self.config.vocab_size)
+                shift_labels = shift_labels.view(-1)
+                # Enable model parallelism
+                shift_labels = shift_labels.to(shift_logits.device)
+                txt_loss = loss_fct(shift_logits, shift_labels)
+
+            # @tcm: attempt special cls token
+            cls_loss_fct = CrossEntropyLoss()
+            assert cls_logits.shape == (eng_classes.shape[0], 3), f"wrong cls_logits shape, expected: {eng_classes.shape[0]}, 3, but got: {cls_logits.shape}"
+            cls_loss = cls_loss_fct(cls_logits, eng_classes)
+            if txt_loss is not None:    
+                loss = 0.5 * (txt_loss + cls_loss)
+            else:
+                loss = cls_loss
 
         if not return_dict:
-            output = (logits, labels) + outputs[1:]
+            output = (logits, cls_logits, labels) + outputs[1:]
             return (loss,) + output if loss is not None else output
 
         return CustomCausalLMOutputWithPast(
             loss=loss,
             logits=logits,
+            cls_logits=cls_logits,
             labels=labels,
             past_key_values=outputs.past_key_values,
             hidden_states=outputs.hidden_states,

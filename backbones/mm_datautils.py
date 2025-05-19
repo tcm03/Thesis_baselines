@@ -1,4 +1,5 @@
 # pyre-strict
+import logging
 import copy
 import json
 import os
@@ -21,6 +22,7 @@ from backbones.constants import (
     DEFAULT_IMAGE_TOKEN,
     IGNORE_INDEX,
     IMAGE_TOKEN_INDEX,
+    CLS_TOKEN_INDEX,
 )
 
 # pyre-fixme[21]: Could not find module `decord`.
@@ -714,6 +716,7 @@ def preprocess_llama3(
     tokenizer: transformers.PreTrainedTokenizer,
     has_image: bool = False,
     system_message: str = "You are a helpful assistant.",
+    eval_mode: bool = False,
     # pyre-fixme[24]: Generic type `dict` expects 2 type parameters, use
     #  `typing.Dict[<key type>, <value type>]` to avoid runtime subscripting errors.
 ) -> Dict:
@@ -726,7 +729,12 @@ def preprocess_llama3(
     # When there is actually an image, we add the image tokens as a special token
     if has_image:
         tokenizer.add_tokens(["<image>"], special_tokens=True)
+        
+        # @tcm: attempt to add a special classification token for the auxiliary classification task (besides text generation)
+        # tokenizer.add_tokens(["<cls>"], special_tokens=True)
+    
     image_token_index = tokenizer.convert_tokens_to_ids("<image>")
+    # cls_token_index = tokenizer.convert_tokens_to_ids("<cls>")
     bos_token_id = tokenizer.convert_tokens_to_ids("<|begin_of_text|>")
     start_header_id = tokenizer.convert_tokens_to_ids("<|start_header_id|>")
     end_header_id = tokenizer.convert_tokens_to_ids("<|end_header_id|>")
@@ -761,6 +769,8 @@ def preprocess_llama3(
     # Apply prompt templates
     input_ids, targets = [], []
     for i, source in enumerate(sources):
+        # if int(os.environ.get("RANK", 0)) == 0:
+        #     logging.info(f"Processing source {i}:\n{source}\n")
         if roles[source[0]["from"]] != roles["human"]:
             source = source[1:]
 
@@ -774,6 +784,8 @@ def preprocess_llama3(
         )[:-4]
 
         target += [IGNORE_INDEX] * len(input_id)
+        # if int(os.environ.get("RANK", 0)) == 0:
+        #     logging.info(f"len(system ids) = {len(input_id)}, system ids = {input_id}")
 
         for conv in source:
             # Make sure llava data can load
@@ -784,6 +796,9 @@ def preprocess_llama3(
                 role = conv["from"]
                 content = conv["value"]
 
+            if eval_mode and role == "gpt":
+                continue
+            
             role = roles.get(role, role)
 
             conv = [{"role": role, "content": content}]
@@ -791,6 +806,9 @@ def preprocess_llama3(
             # pyre-fixme[6]: For 1st argument expected `Union[int, str]` but got
             #  `slice`.
             encode_id = tokenizer.apply_chat_template(conv)[1:-4]
+            # if int(os.environ.get("RANK", 0)) == 0:
+            #     logging.info(f"conv = {conv}")
+            #     logging.info(f"encode_id = {encode_id}")
             input_id += encode_id
             if role in ["user", "system"]:
                 target += [IGNORE_INDEX] * len(encode_id)
@@ -803,6 +821,9 @@ def preprocess_llama3(
                 target[idx] = encode_id
             if encode_id == image_token_index:
                 input_id[idx] = IMAGE_TOKEN_INDEX
+            # if encode_id == cls_token_index:
+            #     input_id[idx] = CLS_TOKEN_INDEX
+                # target[idx] = IGNORE_INDEX
         input_ids.append(input_id)
         targets.append(target)
     input_ids = torch.tensor(input_ids, dtype=torch.long)
@@ -1289,6 +1310,7 @@ def preprocess(
     sources: Sequence[str],
     tokenizer: transformers.PreTrainedTokenizer,
     has_image: bool = False,
+    eval_mode: bool = False,
     # pyre-fixme[24]: Generic type `dict` expects 2 type parameters, use
     #  `typing.Dict[<key type>, <value type>]` to avoid runtime subscripting errors.
 ) -> Dict:
@@ -1314,7 +1336,7 @@ def preprocess(
     if conversation_lib.default_conversation.version == "mpt":
         return preprocess_mpt(sources, tokenizer, has_image=has_image)
     if conversation_lib.default_conversation.version == "llama3":
-        return preprocess_llama3(sources, tokenizer, has_image=has_image)
+        return preprocess_llama3(sources, tokenizer, has_image=has_image, eval_mode=eval_mode)
     if conversation_lib.default_conversation.version == "llama3_1":
         return preprocess_llama_3_1(sources, tokenizer, has_image=has_image)
     if conversation_lib.default_conversation.version == "llama3_2":

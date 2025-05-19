@@ -113,6 +113,7 @@ class LazySupervisedDataset(Dataset):
     def __getitem__(self, i: int) -> Dict[str, torch.Tensor]:
         sources = self.list_data_dict[i]
         dat = sources
+        eng_class = int(dat["label"])
         if isinstance(i, int):
             sources = [sources]
         assert len(sources) == 1, "Don't know why it is wrapped to a list"  # FIXME
@@ -184,8 +185,7 @@ class LazySupervisedDataset(Dataset):
                                 )
                             image_size = image[0].size
                         else:
-                            if int(os.environ['RANK']) == 0:
-                                logging.info(f'In LazySupervisedDataset.__getitem__(): video_file: {video_file}')
+                            # logging.info(f'At rank {int(os.environ.get("RANK", 0))}, LazySupervisedDataset video_file: {video_file}, eng_class: {eng_class}')
                             vr = VideoReader(video_file, ctx=cpu(0), num_threads=1)
                             sample_fps = round(
                                 vr.get_avg_fps() / self.data_args.video_fps
@@ -291,6 +291,201 @@ class LazySupervisedDataset(Dataset):
             data_dict["image_aux_list"] = image_list
             image_size = (crop_size, crop_size)
         data_dict["image_size"] = image_size  # pyre-fixme
+        # @tcm: attempt special cls token
+        data_dict["eng_class"] = eng_class
+        return data_dict
+        
+
+class EvalSupervisedDataset(LazySupervisedDataset):
+
+    """Dataset for evaluation."""
+
+    def __init__(self, *args, **kwargs):
+        super(EvalSupervisedDataset, self).__init__(*args, **kwargs)
+
+    def __getitem__(self, i: int) -> Dict[str, torch.Tensor]:
+        sources = self.list_data_dict[i]
+        dat = sources
+        eng_class = int(dat["label"])
+        if isinstance(i, int):
+            sources = [sources]
+        assert len(sources) == 1, "Don't know why it is wrapped to a list"  # FIXME
+        has_image = self._has_image(dat)
+        image_folders = self.data_args.image_folders
+        if has_image:
+            if "image" in dat:
+                image_file = dat["image"]
+                image_folder = None
+                for img_folder in image_folders:
+                    if os.path.exists(os.path.join(img_folder, image_file)):
+                        image_folder = img_folder
+                        break
+                assert image_folder is not None, f"Image folder not found for {image_file}"
+                processor_aux_list = self.data_args.image_processor_aux_list
+                try:
+                    image = Image.open(os.path.join(image_folder, image_file)).convert(
+                        "RGB"
+                    )
+                except:
+                    print(
+                        "Not exist: ",
+                        os.path.join(image_folder, image_file),
+                        flush=True,
+                    )
+                    return self.__getitem__(0)
+                image_size = image.size
+            else:
+                video_file = dat["video"]
+                processor_aux_list = self.data_args.image_processor_aux_list
+                if video_file.endswith(".gif"):
+                    image_folder = None
+                    for img_folder in image_folders:
+                        if os.path.exists(os.path.join(img_folder, "gifs", video_file)):
+                            image_folder = img_folder
+                            break
+                    assert image_folder is not None, f"Image folder not found for {video_file}"
+                    video_file = os.path.join(
+                        image_folder, "gifs", video_file
+                    )
+                else:
+                    image_folder = None
+                    for img_folder in image_folders:
+                        if os.path.exists(os.path.join(img_folder, video_file)):
+                            image_folder = img_folder
+                            break
+                    assert image_folder is not None, f"Image folder not found for {video_file}"
+                    video_file = os.path.join(image_folder, video_file)
+                if os.path.exists(video_file):
+                    try:
+                        if video_file.endswith(".npy"):
+                            image = np.load(video_file)
+                            image_size = image[0].shape[:2]
+                        elif video_file.endswith(".gif"):
+                            video = Image.open(video_file)
+                            image = []
+                            for frame in ImageSequence.Iterator(video):
+                                frame_copy = frame.copy()
+                                image.append(frame_copy.convert("RGB"))
+                            image_size = image[0].size
+                        elif os.path.isdir(video_file):
+                            files = [f for f in sorted(os.listdir(video_file))]
+                            image = []
+                            for file in files:
+                                image.append(
+                                    Image.open(os.path.join(video_file, file)).convert(
+                                        "RGB"
+                                    )
+                                )
+                            image_size = image[0].size
+                        else:
+                            # logging.info(f'At rank {int(os.environ.get("RANK", 0))}, EvalSupervisedDataset video_file: {video_file}, eng_class: {eng_class}')
+                            vr = VideoReader(video_file, ctx=cpu(0), num_threads=1)
+                            sample_fps = round(
+                                vr.get_avg_fps() / self.data_args.video_fps
+                            )
+                            frame_idx = [i for i in range(0, len(vr), sample_fps)]
+                            image = vr.get_batch(frame_idx).asnumpy()
+                            image_size = image[0].shape[:2]
+                        if self.data_args.uniform_sample:
+                            num_sample = 100
+                            if len(image) > num_sample:
+                                interval = len(image) / float(num_sample)
+                                indices = [int(interval * i) for i in range(num_sample)]
+                                image = [image[idx] for idx in indices]
+                    except:
+                        print("fail to load video: ", video_file, flush=True)
+                        return self.__getitem__(0)
+                else:
+                    print("Not exist: ", video_file, flush=True)
+                    return self.__getitem__(0)
+
+            # pyre-fixme[3]: Return type must be annotated.
+            # pyre-fixme[2]: Parameter must be annotated.
+            def expand2square(pil_img, background_color):
+                width, height = pil_img.size
+                if width == height:
+                    return pil_img
+                elif width > height:
+                    result = Image.new(pil_img.mode, (width, width), background_color)
+                    result.paste(pil_img, (0, (width - height) // 2))
+                    # result.paste(pil_img, (0, 0))
+                    return result
+                else:
+                    result = Image.new(pil_img.mode, (height, height), background_color)
+                    result.paste(pil_img, ((height - width) // 2, 0))
+                    # result.paste(pil_img, (0, 0))
+                    return result
+
+            if self.data_args.image_aspect_ratio != "pad":
+                raise NotImplementedError("Only pad is supported for now.")
+
+            image_aux_list = []
+            # @tcm: use image processors
+            for processor_aux in processor_aux_list:
+                image_aux = image
+                try:
+                    target_resolution = processor_aux.crop_size["height"]
+                except:
+                    target_resolution = processor_aux.size["height"]
+                if not isinstance(image_aux, Image.Image):
+                    frame_list = []
+                    for frame in image_aux:
+                        if not isinstance(frame, Image.Image):
+                            frame = Image.fromarray(frame)
+                        frame_aux = expand2square(
+                            frame, tuple(int(x * 255) for x in processor_aux.image_mean)
+                        ).resize((target_resolution, target_resolution))
+                        frame_aux = processor_aux.preprocess(
+                            frame_aux, return_tensors="pt"
+                        )["pixel_values"][0]
+                        frame_list.append(frame_aux)
+                    image_aux = torch.stack(frame_list)
+                else:
+                    image_aux = expand2square(
+                        image_aux, tuple(int(x * 255) for x in processor_aux.image_mean)
+                    ).resize((target_resolution, target_resolution))
+                    image_aux = processor_aux.preprocess(
+                        image_aux, return_tensors="pt"
+                    )["pixel_values"][0]
+                image_aux_list.append(image_aux)
+
+            sources = preprocess_multimodal(
+                copy.deepcopy([e["conversations"] for e in sources]), self.data_args
+            )
+        else:
+            sources = copy.deepcopy([e["conversations"] for e in sources])
+        data_dict = preprocess(sources, self.tokenizer, has_image=has_image, eval_mode=True)  # pyre-fixme
+        if isinstance(i, int):
+            data_dict = dict(
+                input_ids=data_dict["input_ids"][0], labels=data_dict["labels"][0]
+            )
+        if (data_dict["labels"] != IGNORE_INDEX).sum() == 0:
+            return self.__getitem__(0)
+        # image exist in the data
+        if has_image:
+            data_dict["image_aux_list"] = image_aux_list  # pyre-fixme
+        elif self.data_args.is_multimodal:
+            # image does not exist in the data, but the model is multimodal
+            crop_size = 336
+            processor_aux_list = self.data_args.image_processor_aux_list
+            image_list = []
+            for processor_aux in processor_aux_list:
+                try:
+                    target_resolution = processor_aux.crop_size["height"]
+                except:
+                    target_resolution = processor_aux.size["height"]
+                image_list.append(
+                    torch.zeros(
+                        3,
+                        target_resolution,
+                        target_resolution,
+                    )
+                )
+            data_dict["image_aux_list"] = image_list
+            image_size = (crop_size, crop_size)
+        data_dict["image_size"] = image_size  # pyre-fixme
+        # @tcm: attempt special cls token
+        data_dict["eng_class"] = eng_class
         return data_dict
 
 
@@ -308,7 +503,6 @@ class DataCollatorForSupervisedDataset(object):
         image_token_len = self.image_token_len
         image_aux_token_len_list = self.image_aux_token_len_list
         image_position = self.image_position
-
         input_ids, labels = tuple(
             [instance[key] for instance in instances] for key in ("input_ids", "labels")
         )
@@ -369,6 +563,9 @@ class DataCollatorForSupervisedDataset(object):
 
         input_ids = torch.stack(input_ids)
         labels = torch.stack(labels)
+        # @tcm: attempt special cls token
+        eng_classes = torch.tensor([instance["eng_class"] for instance in instances])
+        # logging.info(f'At rank {int(os.environ.get("RANK", 0))}, DataCollator eng_classes: {eng_classes}')
         attention_mask = input_ids.ne(self.tokenizer.pad_token_id)  # pyre-fixme
         # @tcm: insert dummy image to tokenized text input_ids if there is none
         for i in range(len(input_ids)):
@@ -407,9 +604,12 @@ class DataCollatorForSupervisedDataset(object):
             image_aux_token_len_list,
             max_length,
         )
+        # if int(os.environ.get("RANK", 0)) == 0:
+        #     logging.info(f"len(new_input_ids[0]) = {len(new_input_ids[0])}, new_input_ids[0][:150] = {new_input_ids[0][:150]}")
         batch = dict(
             input_ids=new_input_ids,
             labels=new_labels,
+            eng_classes=eng_classes,
             attention_mask=new_attention_mask,
             position_ids=new_position_ids,
             image_aux_attention_masks_list=im_aux_attention_masks_list,
@@ -442,7 +642,7 @@ def make_supervised_data_module(
     train_dataset = LazySupervisedDataset(
         tokenizer=tokenizer, data_paths=data_args.train_paths, data_args=data_args
     )
-    eval_dataset = LazySupervisedDataset(
+    eval_dataset = EvalSupervisedDataset(
         tokenizer=tokenizer, data_paths=data_args.eval_paths, data_args=data_args
     )
     

@@ -6,3 +6,4 @@ import torch
 @dataclass
 class CustomCausalLMOutputWithPast(CausalLMOutputWithPast):
     labels: Optional[torch.LongTensor] = None
+    cls_logits: Optional[torch.FloatTensor] = None
