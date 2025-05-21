@@ -8,16 +8,16 @@ PREV_STAGE_CHECKPOINT="./checkpoints/longvu_llama3_2"
 OUTPUT_CHECKPOINT="./checkpoints/longvu_llama_snapugc0_txtcls"
 VERSION="llama3"
 
-CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=2 --master_port=29503 models/train.py \
+CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
   --output_dir "/media02/nthuy/Thesis_baselines" \
   --input_model_filename $PREV_STAGE_CHECKPOINT \
   --output_model_filename $OUTPUT_CHECKPOINT \
   --image_folders $PATH_TO_FOLDERS \
   --train_paths $TRAIN_PATHS \
   --eval_paths $EVAL_PATHS \
-  --train_log "train_log_txtcls_1.json" \
-  --train_perf_log "train_perf_txtcls_1.json" \
-  --eval_perf_log "eval_perf_txtcls_1.json" \
+  --train_log "train_log_txtcls_2.json" \
+  --train_perf_log "train_perf_txtcls_2.json" \
+  --eval_perf_log "eval_perf_txtcls_2.json" \
   --model_max_length 8192 \
   --fp16 False \
   --bf16 True \
@@ -49,7 +49,7 @@ CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=2 --master_port=29503 models/tr
   --eval_strategy "steps" \
   --eval_steps 151 \
   --save_strategy "epoch" \
-  --save_steps 500 \
+  --save_steps 380 \
   --logging_steps 10 \
   --num_train_epochs 3 \
   --warmup_ratio 0.03 \
@@ -57,7 +57,7 @@ CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=2 --master_port=29503 models/tr
   --weight_decay 0. \
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 1 \
-  --gradient_accumulation_steps 16 \
+  --gradient_accumulation_steps 8 \
   --group_by_modality_length True \
   --dataloader_num_workers 0 \
   # --model_path $MODEL_PATH \

@@ -270,7 +270,6 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
         self.pretraining_tp = config.pretraining_tp
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-        # @tcm: Attempt special cls token
         self.cls_head = nn.Linear(config.hidden_size, 3, bias=False)
 
         # Initialize weights and apply final processing
@@ -297,7 +296,6 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
         image_sizes: Optional[List[List[int]]] = None,
         return_dict: Optional[bool] = None,
         cache_position=None,
-        cls_only=False
     ) -> Union[Tuple, CausalLMOutputWithPast]:
 
         final_vision_feature_size = None
@@ -466,9 +464,9 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
             ]
             logits = torch.cat(logits, dim=-1)
         else:
-            if not cls_only:
-                logits = self.lm_head(hidden_states) # logits.shape: [bs, seq_len, vocab_size], e.g. bs = 1, seq_len = 1297, vocab_size = 128256
-                logits = logits.float()
+            logits = None
+            logits = self.lm_head(hidden_states) # logits.shape: [bs, seq_len, vocab_size], e.g. bs = 1, seq_len = 1297, vocab_size = 128256
+            logits = logits.float()
             # @tcm: attempt special cls token
             cls_logits = self.cls_head(cls_states) # [bs, 3]
             cls_logits = cls_logits.float()
@@ -477,17 +475,16 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
         # assert labels is not None, "@tcm: for eng_classes and labels, labels must not be None"
         if labels is not None:
             txt_loss = None
-            if not cls_only:
-                # Shift so that tokens < n predict n
-                shift_logits = logits[..., :-1, :].contiguous()
-                shift_labels = labels[..., 1:].contiguous()
-                # Flatten the tokens
-                loss_fct = CrossEntropyLoss()
-                shift_logits = shift_logits.view(-1, self.config.vocab_size)
-                shift_labels = shift_labels.view(-1)
-                # Enable model parallelism
-                shift_labels = shift_labels.to(shift_logits.device)
-                txt_loss = loss_fct(shift_logits, shift_labels)
+            # Shift so that tokens < n predict n
+            shift_logits = logits[..., :-1, :].contiguous()
+            shift_labels = labels[..., 1:].contiguous()
+            # Flatten the tokens
+            loss_fct = CrossEntropyLoss()
+            shift_logits = shift_logits.view(-1, self.config.vocab_size)
+            shift_labels = shift_labels.view(-1)
+            # Enable model parallelism
+            shift_labels = shift_labels.to(shift_logits.device)
+            txt_loss = loss_fct(shift_logits, shift_labels)
 
             # @tcm: attempt special cls token
             cls_loss_fct = CrossEntropyLoss()

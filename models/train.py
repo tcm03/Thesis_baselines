@@ -50,7 +50,7 @@ if torch.cuda.is_available():
 
 ddp = int(os.environ.get("RANK", -1)) != -1
 
-def forward_step(model, batch, device, cls_only=False, eval_mode=False):
+def forward_step(model, batch, device, eval_mode=False):
     input_ids = batch["input_ids"].to(device)
     labels = batch["labels"].to(device)
     eng_classes = batch["eng_classes"].to(device)
@@ -75,7 +75,6 @@ def forward_step(model, batch, device, cls_only=False, eval_mode=False):
             images=images,
             image_aux_attention_masks_list=image_aux_attention_masks_list,
             image_sizes=image_sizes,
-            cls_only=cls_only,
         )
     else:
         outputs = model(
@@ -87,7 +86,6 @@ def forward_step(model, batch, device, cls_only=False, eval_mode=False):
             images=images,
             image_aux_attention_masks_list=image_aux_attention_masks_list,
             image_sizes=image_sizes,
-            cls_only=cls_only,
         )
     return outputs
 
@@ -575,17 +573,17 @@ def train():
                     # always save checkpoint at the very last training step
                     do_save = True
                     checkpoint_name = f'checkpoint-txtcls-epoch{epoch}-final.pt'
-                if do_save:
-                    log_rank0(f'Saving checkpoint at epoch {epoch}, global step {global_steps}...')
-                    checkpoint_path = os.path.join(training_args.output_checkpoint_path, checkpoint_name)
-                    save_checkpoint(
-                        checkpoint_path,
-                        raw_model,
-                        optimizer,
-                        # scheduler=scheduler,
-                        # epoch=epoch,
-                        # global_steps=global_steps,
-                    )
+                # if do_save:
+                #     log_rank0(f'Saving checkpoint at epoch {epoch}, global step {global_steps}...')
+                #     checkpoint_path = os.path.join(training_args.output_checkpoint_path, checkpoint_name)
+                #     save_checkpoint(
+                #         checkpoint_path,
+                #         raw_model,
+                #         optimizer,
+                #         # scheduler=scheduler,
+                #         # epoch=epoch,
+                #         # global_steps=global_steps,
+                #     )
         
     if ddp:
         destroy_process_group()

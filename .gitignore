@@ -6,4 +6,4 @@ backbones/vision_encoders/__pycache__/
 backbones/multimodal_projector/__pycache__/
 baselines/__pycache__/
 models/__pycache__/
-
+images/
