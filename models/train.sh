@@ -2,16 +2,17 @@
 PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
 TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_engcaption_cls.json"
 EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_engcaption_cls.json"
-MODEL_PATH="./checkpoints/longvu_llama3_2/pytorch_model.bin"
 
-PREV_STAGE_CHECKPOINT="./checkpoints/longvu_llama3_2"
-OUTPUT_CHECKPOINT="./checkpoints/longvu_llama_snapugc0_txtcls"
+OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txtcls1"
+CKPT_NAME="longvu_llama_snapugc0_txtcls1.pt"
+MODEL_PATH="./checkpoints/longvu_llama3_2"
+PREV_STAGE_CHECKPOINT=""
 VERSION="llama3"
 
 CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
-  --output_dir "/media02/nthuy/Thesis_baselines" \
-  --input_model_filename $PREV_STAGE_CHECKPOINT \
-  --output_model_filename $OUTPUT_CHECKPOINT \
+  --input_model_filename $MODEL_PATH \
+  --output_model_filename $OUTPUT_DIR \
+  --checkpoint_fname $CKPT_NAME \
   --image_folders $PATH_TO_FOLDERS \
   --train_paths $TRAIN_PATHS \
   --eval_paths $EVAL_PATHS \
@@ -59,8 +60,8 @@ CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=4 --master_port=29503 models/tr
   --per_device_eval_batch_size 1 \
   --gradient_accumulation_steps 8 \
   --group_by_modality_length True \
-  --dataloader_num_workers 0 \
-  # --model_path $MODEL_PATH \
+  --resume_from_checkpoint $PREV_STAGE_CHECKPOINT
+  # --dataloader_num_workers 0 \
   # --output_file "test.safetensors" \
   # --config_file "config_llama.json" \
-  # --resume_from_checkpoint $MODEL_PATH
+  
