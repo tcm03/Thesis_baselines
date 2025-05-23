@@ -309,6 +309,9 @@ def train():
         if model_args.tune_cls_head:
             for p in model.cls_head.parameters():
                 p.requires_grad = True
+        if model_args.tune_embed_tokens:
+            for p in model.get_input_embeddings().parameters():
+                p.requires_grad = True
         model.config.freeze_mm_mlp_adapter = training_args.freeze_mm_mlp_adapter  # pyre-fixme
         if training_args.freeze_mm_mlp_adapter:
             for p in model.get_model().mm_projector.parameters():
@@ -518,6 +521,13 @@ def train():
                     # for param_group in optimizer.param_groups:
                     #     cur_lr = param_group["lr"]
                     #     logging.info(f'lr: {cur_lr:.10f}')
+                
+                # zero out grads for all original tokens, keep <cls> trainable
+                with torch.no_grad():
+                    grad = model.module.get_input_embeddings().weight.grad if hasattr(model, "module") else model.get_input_embeddings().weight.grad
+                    assert grad is not None and grad.ndim == 2, "grad is not None and grad.ndim == 2"
+                    grad[:-1, :] = 0          # zero out grads for all original tokens
+                
                 optimizer.step()
                 scheduler.step()
                 optimizer.zero_grad(set_to_none=True)              # clear for next cycle
@@ -597,7 +607,7 @@ def train():
                     do_save = (global_steps % save_steps == 0)
                     if do_save:
                         checkpoint_name = f'{checkpoint_name}-epoch{epoch}-step{global_steps}.pt'
-                if not do_save and epoch == num_epochs - 1 and batch_idx == len(train_dataloader) - 1:
+                if epoch == num_epochs - 1 and batch_idx == len(train_dataloader) - 1:
                     # always save checkpoint at the very last training step
                     do_save = True
                     checkpoint_name = f'{checkpoint_name}-epoch{epoch}-final.pt'

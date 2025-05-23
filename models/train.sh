@@ -1,10 +1,10 @@
 #!/bin/bash
 PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
-TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_nano_train_engcls.json"
-EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_nano_val_engcls.json"
+TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_engcaption_cls.json"
+EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_engcaption_cls.json"
 
-OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txtcls1"
-CKPT_NAME="longvu_llama_snapugc0_txtcls1"
+OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txtcls0"
+CKPT_NAME="longvu_llama_snapugc0_txtcls0"
 PREV_STAGE_CHECKPOINT=""
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
@@ -38,6 +38,7 @@ CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=4 --master_port=29503 models/tr
   --tune_mm_mlp_adapter True \
   --tune_lm_head True \
   --tune_cls_head True \
+  --tune_embed_tokens True \
   --freeze_mm_mlp_adapter False \
   --freeze_backbone True \
   --gradient_checkpointing True \
@@ -48,16 +49,16 @@ CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=4 --master_port=29503 models/tr
   --video_fps 1 \
   --highres True \
   --drop_threshold 0.8 \
-  --eval_strategy "epoch" \
+  --eval_strategy "steps" \
   --eval_steps 151 \
   --save_strategy "steps" \
-  --save_steps 3 \
-  --logging_steps 5 \
+  --save_steps 379 \
+  --logging_steps 10 \
   --num_train_epochs 2 \
   --warmup_ratio 0.03 \
   --learning_rate 5e-6 \
   --weight_decay 0. \
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 1 \
-  --gradient_accumulation_steps 1 \
+  --gradient_accumulation_steps 8 \
   # --resume_from_checkpoint $PREV_STAGE_CHECKPOINT
