@@ -29,7 +29,7 @@ from supervised_dataset import make_supervised_data_module
 from grouped_sampler import LengthGroupedSampler
 from opti import get_optimizer
 from train_log import *
-from models.utils import count_parameters, log_rank0
+from models.utils import count_parameters, log_rank0, seed_worker
 from models.train_ckpt import *
 
 from collections import defaultdict
@@ -352,26 +352,53 @@ def train():
     model = convert_bn_to_float(model)
     if master_process:
         count_parameters(model, print_layers = True)
-        logging.info(f"gradient_checkpointing: {model.is_gradient_checkpointing}")
     if ddp:
         model = DDP(model, device_ids=[ddp_local_rank])
 
-    # test tokenizer by encoding "This video is great" and then decode back
-    # test_str = "This video is great"
-    # test_tokens = tokenizer.encode(test_str)
-    # tmp_ids = torch.tensor([271, 17, 2835, 4478, 315, 220, 13])
-    # test_decoded = tokenizer.decode(tmp_ids)
-    # logging.info(f'test_str: {test_str}, test_tokens: {test_tokens}, test_decoded: {test_decoded}')
-    # return
+    num_epochs: int = training_args.num_train_epochs
+    last_epoch: int = 0
+    batch_in_last_epoch: int = -1
+    global_steps: int = 0
+    gradient_accumulation_steps: int = int(training_args.gradient_accumulation_steps)
+    # Create a reproducible generator
+    generator = torch.Generator()
+    if training_args.resume_from_checkpoint is not None:
+        checkpoint_base_dir = os.path.dirname(training_args.resume_from_checkpoint)
+        assert os.path.isdir(checkpoint_base_dir), f"Checkpoint base dir {checkpoint_base_dir} does not exist"
+        assert os.path.isfile(training_args.resume_from_checkpoint), f"Checkpoint {training_args.resume_from_checkpoint} is not a file"
+        ckpt = load_checkpoint(
+            training_args.resume_from_checkpoint, 
+            training_args,
+            model, 
+            load_optimizer=True, 
+            load_scheduler=True
+        )
+        world_size = ckpt["world_size"]
+        assert world_size == ddp_world_size, f"World size mismatch: ckpt world size = {world_size} != current world size = {ddp_world_size}"
+        ckpt_gradient_accumulation_steps = ckpt["gradient_accumulation_steps"]
+        assert gradient_accumulation_steps == ckpt_gradient_accumulation_steps, f"Gradient accumulation steps mismatch: ckpt gradient accumulation steps = {ckpt_gradient_accumulation_steps} != current gradient accumulation steps = {gradient_accumulation_steps}"
+        ckpt_per_device_train_batch_size = ckpt["per_device_train_batch_size"]
+        assert training_args.per_device_train_batch_size == ckpt_per_device_train_batch_size, f"Per-device train batch size mismatch: ckpt per-device train batch size = {ckpt_per_device_train_batch_size} != current per-device train batch size = {training_args.per_device_train_batch_size}"
+        ckpt_rank = ckpt["rank"]
+        assert ckpt_rank == ddp_rank, f"Rank mismatch: ckpt rank = {ckpt_rank} != current rank = {ddp_rank}"
+
+        optimizer = ckpt["optimizer"]
+        scheduler = ckpt["scheduler"]
+        last_epoch = ckpt["last_epoch"]
+        batch_in_last_epoch = ckpt["batch_in_last_epoch"]
+        global_steps = ckpt["global_steps"]
+        generator.set_state(ckpt["sampler_state"])
+        num_warmup_steps = ckpt["num_warmup_steps"]
+        num_training_steps = ckpt["num_training_steps"]
+    else:
+        generator.manual_seed(GLOBAL_SEED)
+    
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
     train_dataset = data_module["train_dataset"]
     eval_dataset = data_module["eval_dataset"]
     data_collator = data_module["data_collator"]
 
     assert training_args.group_by_modality_length is True, "Group by modality length must be True"
-    # Create a reproducible generator
-    generator = torch.Generator()
-    generator.manual_seed(GLOBAL_SEED)
     # Instantiate LengthGroupedSampler
     train_sampler = LengthGroupedSampler(
         batch_size=training_args.per_device_train_batch_size,
@@ -392,7 +419,6 @@ def train():
         batch_size=training_args.per_device_train_batch_size,
         sampler=train_sampler,
         collate_fn=data_collator,
-        num_workers=training_args.dataloader_num_workers,
         pin_memory=True,
         drop_last=True, # per-device train batch size = 1 so we won't miss too many samples
     )
@@ -401,35 +427,25 @@ def train():
         batch_size=training_args.per_device_eval_batch_size,
         sampler=eval_sampler,
         collate_fn=data_collator,
-        num_workers=training_args.dataloader_num_workers,
         pin_memory=True,
         drop_last=True, # per-device eval batch size = 1 so we won't miss too many samples
     )
-    optimizer = get_optimizer(model, training_args)
+    if training_args.resume_from_checkpoint is None:
+        optimizer = get_optimizer(model, training_args)
+        num_training_steps = (len(train_dataloader) + gradient_accumulation_steps - 1) // gradient_accumulation_steps * num_epochs
+        num_warmup_steps = int(training_args.warmup_ratio * num_training_steps)  # warm up % of training steps
+        scheduler = get_cosine_schedule_with_warmup(
+            optimizer,
+            num_warmup_steps=num_warmup_steps,
+            num_training_steps=num_training_steps
+        )
 
-    num_epochs: int = training_args.num_train_epochs
-    start_epoch: int = 0
-    gradient_accumulation_steps: int = int(training_args.gradient_accumulation_steps)
-    num_training_steps = (len(train_dataloader) + gradient_accumulation_steps - 1) // gradient_accumulation_steps * num_epochs
-    num_warmup_steps = int(training_args.warmup_ratio * num_training_steps)  # warm up % of training steps
-    scheduler = get_cosine_schedule_with_warmup(
-        optimizer,
-        num_warmup_steps=num_warmup_steps,
-        num_training_steps=num_training_steps
-    )
+    from_epoch = last_epoch
+    from_batch = batch_in_last_epoch + 1
+    if batch_in_last_epoch >= len(train_dataloader):
+        from_epoch += 1
+        from_batch = 0
     
-    # if training_args.resume:
-    #     assert custom_args.input_checkpoint_path is not None, "Checkpoint path is required for resuming training"
-    #     ( 
-    #         start_epoch, 
-    #         global_steps
-    #     ) = load_checkpoint(
-    #         training_args.input_checkpoint_path,
-    #         raw_model,
-    #         optimizer,
-    #         scheduler=scheduler
-    #     )
-    global_steps: int = 0
     logging_steps: int = int(training_args.logging_steps)
     eval_steps: int = int(training_args.eval_steps)
     os.makedirs(training_args.output_dir, exist_ok=True)
@@ -440,17 +456,18 @@ def train():
     train_perf: List[PerfMetrics] = []
     eval_perf: List[PerfMetrics] = []
 
-    for epoch in range(start_epoch, start_epoch + num_epochs):
+    for epoch in range(from_epoch, num_epochs):
         if ddp:
             # Ensure each process sees a different ordering at each epoch
-            # train_sampler.set_epoch(epoch)
-            generator.manual_seed(GLOBAL_SEED + epoch)
+            if epoch > last_epoch:
+                generator.manual_seed(GLOBAL_SEED + epoch)
         model.train()
         train_loss_accum = torch.zeros(1, device=device)
         train_device_preds, train_device_gold_labels = [], []
         for batch_idx, batch in enumerate(train_dataloader):
-            
-            log_rank0(f'Epoch {epoch + 1}/{start_epoch + num_epochs}, batch {batch_idx + 1}/{len(train_dataloader)}')
+            if epoch == from_epoch and batch_idx < from_batch:
+                continue
+            log_rank0(f'Epoch {epoch + 1}/{num_epochs}, batch {batch_idx + 1}/{len(train_dataloader)}')
 
             is_last_micro = ((batch_idx + 1) % gradient_accumulation_steps == 0) or (batch_idx == len(train_dataloader) - 1)
             
@@ -475,7 +492,7 @@ def train():
                     dist.all_reduce(train_loss_accum, op=dist.ReduceOp.AVG)
                 if global_steps % logging_steps == 0 and master_process:
                     total_norm = sum(p.grad.detach().data.norm(2).item() ** 2 for p in model.parameters() if p.grad is not None) ** 0.5
-                    logging.info(f'Epoch {epoch + 1}/{start_epoch + num_epochs}, global step: {global_steps}, loss={train_loss_accum.item():.10f}, clipped gradient norm: {total_norm:.4f}')
+                    logging.info(f'Epoch {epoch + 1}/{num_epochs}, global step: {global_steps}, loss={train_loss_accum.item():.10f}, clipped gradient norm: {total_norm:.4f}')
                     train_logs.append(TrainProgressLog(
                         run_type="train",
                         epoch=epoch + (batch_idx+1) / len(train_dataloader),
@@ -560,30 +577,37 @@ def train():
                     model.train()
     
                 do_save = False
-                checkpoint_name = None
+                checkpoint_name = model_args.checkpoint_fname
                 if training_args.save_strategy == 'epoch':
                     do_save = (batch_idx == len(train_dataloader) - 1)
                     if do_save:
-                        checkpoint_name = f'checkpoint-txtcls-epoch{epoch}.pt'
+                        checkpoint_name = f'{checkpoint_name}-epoch{epoch}.pt'
                 elif training_args.save_strategy == 'steps':
                     do_save = (global_steps % eval_steps == 0)
                     if do_save:
-                        checkpoint_name = f'checkpoint-txtcls-epoch{epoch}-steps{global_steps}.pt'
+                        checkpoint_name = f'{checkpoint_name}-epoch{epoch}-step{global_steps}.pt'
                 if not do_save and epoch == num_epochs - 1 and batch_idx == len(train_dataloader) - 1:
                     # always save checkpoint at the very last training step
                     do_save = True
-                    checkpoint_name = f'checkpoint-txtcls-epoch{epoch}-final.pt'
-                # if do_save:
-                #     log_rank0(f'Saving checkpoint at epoch {epoch}, global step {global_steps}...')
-                #     checkpoint_path = os.path.join(training_args.output_checkpoint_path, checkpoint_name)
-                #     save_checkpoint(
-                #         checkpoint_path,
-                #         raw_model,
-                #         optimizer,
-                #         # scheduler=scheduler,
-                #         # epoch=epoch,
-                #         # global_steps=global_steps,
-                #     )
+                    checkpoint_name = f'{checkpoint_name}-epoch{epoch}-final.pt'
+                if master_process and do_save:
+                    log_rank0(f'Saving checkpoint at epoch {epoch}, global step {global_steps}...')
+                    checkpoint_path = os.path.join(training_args.output_model_filename, checkpoint_name)
+                    save_checkpoint(
+                        checkpoint_path,
+                        model,
+                        optimizer,
+                        scheduler,
+                        num_warmup_steps,
+                        num_training_steps,
+                        last_epoch=epoch,
+                        batch_in_last_epoch=batch_idx,
+                        global_steps=global_steps,
+                        sampler_gen_state=generator.get_state(),
+                        gradient_accumulation_steps=gradient_accumulation_steps,
+                        per_device_train_batch_size=training_args.per_device_train_batch_size,
+                        world_size=ddp_world_size,
+                    )
         
     if ddp:
         destroy_process_group()

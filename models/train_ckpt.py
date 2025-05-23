@@ -1,106 +1,114 @@
-import os
-import torch
-import logging
+# ===== models/train_ckpt.py =====
+import os, torch, random, numpy as np
+from typing import Dict, Any
 from models.utils import log_rank0
+from opti import get_optimizer
+from transformers import get_cosine_schedule_with_warmup, TrainingArguments
 
-def load_model(model, model_path):
-    pretrained_state_dict = torch.load(model_path, map_location = 'cpu')
-    model_state_dict = model.state_dict()
-    log_rank0("Initializing layers...")
-    for layer_name in model_state_dict.keys():
-        if "vision_tower" in layer_name:
-            # skip manual loading of vision encoders
-            continue
-        load_pretrained = False
-        for pretrained_layer_name in pretrained_state_dict.keys():
-            if layer_name in pretrained_layer_name:
-                log_rank0(f"Load {layer_name}")
-                model_state_dict[layer_name] = pretrained_state_dict[pretrained_layer_name]
-                load_pretrained = True
-                break
-        if load_pretrained is False:
-            log_rank0(f"Skip {layer_name}")
-    model.load_state_dict(model_state_dict)
 
-def load_checkpoint(
-    checkpoint_path: str,
-    model: torch.nn.Module,
-    optimizer: torch.optim.Optimizer,
-    scheduler=None
-):
-    """
-    Loads a checkpoint containing only the trainable parts of the model,
-    along with the optimizer and scheduler states.
-
-    Args:
-        checkpoint_path (str): File path to the checkpoint.
-        model (torch.nn.Module): The model (can be wrapped in DDP).
-        optimizer (torch.optim.Optimizer): The optimizer used for training.
-        scheduler (optional): Learning rate scheduler; its state is loaded if provided.
-    """
-    checkpoint = torch.load(checkpoint_path, map_location='cpu')
-    raw_model = model.module if hasattr(model, "module") else model
-    current_state_dict = raw_model.state_dict()
-    for k, v in checkpoint["model_trainable_state_dict"].items():
-        if k in current_state_dict:
-            current_state_dict[k].copy_(v)
-        else:
-            log_rank0(f"Key {k} not found in model state dict.")
-    raw_model.load_state_dict(current_state_dict, strict=False)
-    optimizer.load_state_dict(checkpoint["optimizer_state_dict"])
-    if scheduler is not None and "scheduler_state_dict" in checkpoint:
-        scheduler.load_state_dict(checkpoint["scheduler_state_dict"])
-    if "epoch" in checkpoint:
-        epoch = checkpoint["epoch"] + 1
-        log_rank0(f"Resuming training from epoch {epoch}")
-    else:
-        epoch = 0
-        log_rank0("No epoch information found in checkpoint. Starting from epoch 0.")
-    if "global_steps" in checkpoint:
-        global_steps = checkpoint["global_steps"]
-        log_rank0(f"Resuming training from global step {global_steps + 1}")
-    else:
-        global_steps = 0
-        log_rank0("No global step information found in checkpoint. Starting from global step 0.")
-    return epoch, global_steps
-
-def save_checkpoint(
-    checkpoint_path: str,
-    model: torch.nn.Module,
-    optimizer: torch.optim.Optimizer,
-    scheduler = None,
-    epoch: int = None,
-    global_steps: int = None
-):
-    """
-    Saves a checkpoint containing only the trainable parts of the model,
-    along with the optimizer and scheduler states.
-    
-    This is useful when most parameters are frozen (e.g., vision encoders, 
-    spatial aggregators, vision queries) and only a subset (e.g., last FC layers
-    and layer norm layers) is being fine-tuned. 
-    
-    Args:
-        checkpoint_path (str): File path to save the checkpoint.
-        model (torch.nn.Module): The model (can be wrapped in DDP).
-        optimizer (torch.optim.Optimizer): The optimizer used for training.
-        scheduler (optional): Learning rate scheduler; its state is saved if provided.
-        epoch (int, optional): Current epoch number.
-        global_steps (int, optional): Total number of training steps completed.
-    """
-    os.makedirs(os.path.dirname(checkpoint_path), exist_ok=True)
-    raw_model = model.module if hasattr(model, "module") else model
-    trainable_keys = [n for n, t in raw_model.named_parameters() if t.requires_grad]
-    trainable_state_dict = {k: v for k, v in raw_model.state_dict().items() if k in trainable_keys}
-    checkpoint = {
-        "model_trainable_state_dict": trainable_state_dict,
-        "optimizer_state_dict": optimizer.state_dict(),
+def _rng_pack() -> Dict[str, Any]:
+    return {
+        "torch_cpu": torch.get_rng_state(),
+        "torch_cuda": torch.cuda.get_rng_state_all() if torch.cuda.is_available() else None,
+        "numpy":      np.random.get_state(),
+        "python":     random.getstate(),
     }
-    if scheduler is not None:
-        checkpoint["scheduler_state_dict"] = scheduler.state_dict()
-    if epoch is not None:
-        checkpoint["epoch"] = epoch
-    if global_steps is not None:
-        checkpoint["global_steps"] = global_steps
-    torch.save(checkpoint, checkpoint_path)
-    log_rank0(f"Checkpoint saved to {checkpoint_path}")
+
+def _rng_unpack(pkg: Dict[str, Any]):
+    torch.set_rng_state(pkg["torch_cpu"])
+    if pkg["torch_cuda"] is not None:
+        torch.cuda.set_rng_state_all(pkg["torch_cuda"])
+    np.random.set_state(pkg["numpy"])
+    random.setstate(pkg["python"])
+
+# ---------- SAVE ----------
+def save_checkpoint(path: str,
+                    model: torch.nn.Module,
+                    optimizer: torch.optim.Optimizer,
+                    scheduler,
+                    num_warmup_steps: int,
+                    num_training_steps: int,
+                    last_epoch: int,
+                    batch_in_last_epoch: int,
+                    global_steps: int,
+                    sampler_gen_state,
+                    gradient_accumulation_steps: int,
+                    per_device_train_batch_size: int,
+                    world_size: int,
+                    ):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    raw = model.module if hasattr(model, "module") else model
+
+    trainable = {k: v for k, v in raw.state_dict().items()
+                 if v.requires_grad}
+
+    torch.save({
+        # model, optimizer, and scheduler
+        "model_trainable_state_dict": trainable,
+        "optimizer_state_dict": optimizer.state_dict(),
+        "scheduler_state_dict": scheduler.state_dict(),
+        "num_warmup_steps": num_warmup_steps,
+        "num_training_steps": num_training_steps,
+        # training progress
+        "last_epoch": last_epoch,
+        "batch_in_last_epoch": batch_in_last_epoch,
+        "global_steps": global_steps,
+        # rng states
+        "sampler_state": sampler_gen_state,
+        "rng_state": _rng_pack(),
+        # training config
+        "world_size": world_size,
+        "gradient_accumulation_steps": gradient_accumulation_steps,
+        "per_device_train_batch_size": per_device_train_batch_size,
+        "rank": int(os.environ.get("RANK", 0)),
+    }, path)
+    log_rank0(f"Checkpoint saved to {path}")
+
+# ---------- LOAD ----------
+def load_checkpoint(path: str,
+                    training_args: TrainingArguments,
+                    model: torch.nn.Module,
+                    load_optimizer: bool = True,
+                    load_scheduler: bool = True):
+    ckpt = torch.load(path, map_location="cpu")
+    raw  = model.module if hasattr(model, "module") else model
+    raw.load_state_dict(ckpt["model_trainable_state_dict"], strict=False)
+    return_dict = {}
+
+    if load_optimizer:
+        optimizer = get_optimizer(model, training_args)
+        optimizer.load_state_dict(ckpt["optimizer_state_dict"])
+        return_dict["optimizer"] = optimizer
+
+    if load_scheduler:
+        if "optimizer" not in return_dict:
+            raise ValueError("Optimizer must be loaded before scheduler")
+        if "scheduler_state_dict" not in ckpt or "num_warmup_steps" not in ckpt or "num_training_steps" not in ckpt:
+            raise ValueError("Scheduler state dict, num_warmup_steps, and num_training_steps must be provided if load_scheduler is True")
+
+        last_scheduler_epoch = ckpt["scheduler_state_dict"]["last_epoch"]
+        scheduler = get_cosine_schedule_with_warmup(
+            return_dict["optimizer"],
+            num_warmup_steps=ckpt["num_warmup_steps"],
+            num_training_steps=ckpt["num_training_steps"],
+            last_epoch=last_scheduler_epoch-1, # initialization automatically invokes step() so we subtract to avoid stepping twice
+        )
+        scheduler.load_state_dict(ckpt["scheduler_state_dict"])
+        return_dict["scheduler"] = scheduler
+        return_dict["num_warmup_steps"] = ckpt["num_warmup_steps"]
+        return_dict["num_training_steps"] = ckpt["num_training_steps"]
+    
+    _rng_unpack(ckpt["rng_state"])
+
+    return_dict.update({
+        "last_epoch": ckpt["last_epoch"],
+        "batch_in_last_epoch": ckpt["batch_in_last_epoch"],
+        "global_steps": ckpt["global_steps"],
+        "sampler_state": ckpt["sampler_state"],
+        "world_size": ckpt["world_size"],
+        "gradient_accumulation_steps": ckpt["gradient_accumulation_steps"],
+        "per_device_train_batch_size": ckpt["per_device_train_batch_size"],
+        "rank": int(os.environ.get("RANK", 0)),
+    })
+
+    return return_dict

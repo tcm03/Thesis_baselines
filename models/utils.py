@@ -1,5 +1,8 @@
 import os
 import logging
+import torch
+import numpy as np
+import random
 
 def log_rank0(message: str):
     if int(os.environ.get("RANK", 0)) == 0:
@@ -45,3 +48,8 @@ def count_parameters(model, print_layers = False):
         print("\nTrainable layers:")
         for layer in trainable_layers:
             print(f"- {layer}")
+
+
+def seed_worker(worker_id):
+    worker_seed = (torch.initial_seed() + worker_id) % 2**32
+    np.random.seed(worker_seed); random.seed(worker_seed)

@@ -6,6 +6,8 @@ import transformers
 class ModelArguments:
     input_model_filename: Optional[str] = field(default=None)
     output_model_filename: Optional[str] = field(default=None)
+    checkpoint_fname: Optional[str] = field(default=None)
+    
     model_name_or_path: Optional[str] = field(default="facebook/opt-125m")
     version: Optional[str] = field(default="v0")
     freeze_backbone: bool = field(default=False)
@@ -134,12 +136,12 @@ class TrainingArguments(transformers.TrainingArguments):
     # per_device_train_batch_size is inherited from HF
     # per_device_eval_batch_size is inherited from HF
 
-    dataloader_num_workers: int = field(
-        default=0,
-        metadata={
-            "help": "Number of workers for the dataloader"
-        }
-    )
+    # dataloader_num_workers: int = field(
+    #     default=0,
+    #     metadata={
+    #         "help": "Number of workers for the dataloader"
+    #     }
+    # )
 
     train_log: Optional[str] = field(default=None)
     train_perf_log: Optional[str] = field(default=None)
