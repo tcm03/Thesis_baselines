@@ -1,9 +1,10 @@
 # ===== models/train_ckpt.py =====
 import os, torch, random, numpy as np
-from typing import Dict, Any
+from typing import Dict, Any, List
 from models.utils import log_rank0
 from opti import get_optimizer
 from transformers import get_cosine_schedule_with_warmup, TrainingArguments
+import torch.distributed as dist
 
 
 def _rng_pack() -> Dict[str, Any]:
@@ -21,6 +22,7 @@ def _rng_unpack(pkg: Dict[str, Any]):
     np.random.set_state(pkg["numpy"])
     random.setstate(pkg["python"])
 
+
 # ---------- SAVE ----------
 def save_checkpoint(path: str,
                     model: torch.nn.Module,
@@ -31,46 +33,54 @@ def save_checkpoint(path: str,
                     last_epoch: int,
                     batch_in_last_epoch: int,
                     global_steps: int,
-                    sampler_gen_state,
                     gradient_accumulation_steps: int,
                     per_device_train_batch_size: int,
                     world_size: int,
+                    epoch_seed: int,
                     ):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
+    master_process = dist.get_rank() == 0
+    if master_process:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
     raw = model.module if hasattr(model, "module") else model
 
     trainable = {k: v for k, v in raw.state_dict().items()
                  if v.requires_grad}
 
-    torch.save({
-        # model, optimizer, and scheduler
-        "model_trainable_state_dict": trainable,
-        "optimizer_state_dict": optimizer.state_dict(),
-        "scheduler_state_dict": scheduler.state_dict(),
-        "num_warmup_steps": num_warmup_steps,
-        "num_training_steps": num_training_steps,
-        # training progress
-        "last_epoch": last_epoch,
-        "batch_in_last_epoch": batch_in_last_epoch,
-        "global_steps": global_steps,
-        # rng states
-        "sampler_state": sampler_gen_state,
-        "rng_state": _rng_pack(),
-        # training config
-        "world_size": world_size,
-        "gradient_accumulation_steps": gradient_accumulation_steps,
-        "per_device_train_batch_size": per_device_train_batch_size,
-        "rank": int(os.environ.get("RANK", 0)),
-    }, path)
-    log_rank0(f"Checkpoint saved to {path}")
+    if master_process:
+        torch.save({
+            # model, optimizer, and scheduler
+            "model_trainable_state_dict": trainable,
+            "optimizer_state_dict": optimizer.state_dict(),
+            "scheduler_state_dict": scheduler.state_dict(),
+            "num_warmup_steps": num_warmup_steps,
+            "num_training_steps": num_training_steps,
+            # training progress
+            "last_epoch": last_epoch,
+            "batch_in_last_epoch": batch_in_last_epoch,
+            "global_steps": global_steps,
+            # rng states
+            "rng_state": _rng_pack(),
+            # training config
+            "world_size": world_size,
+            "gradient_accumulation_steps": gradient_accumulation_steps,
+            "per_device_train_batch_size": per_device_train_batch_size,
+            "rank": int(os.environ.get("RANK", 0)),
+            "epoch_seed": epoch_seed,
+        }, path)
+        log_rank0(f"Checkpoint saved to {path}")
+    dist.barrier()
 
 # ---------- LOAD ----------
 def load_checkpoint(path: str,
                     training_args: TrainingArguments,
                     model: torch.nn.Module,
+                    generator: torch.Generator,
                     load_optimizer: bool = True,
                     load_scheduler: bool = True):
+
+    # Rank-0 reads from disk, then broadcasts the whole object list.
     ckpt = torch.load(path, map_location="cpu")
+
     raw  = model.module if hasattr(model, "module") else model
     raw.load_state_dict(ckpt["model_trainable_state_dict"], strict=False)
     return_dict = {}
@@ -99,16 +109,18 @@ def load_checkpoint(path: str,
         return_dict["num_training_steps"] = ckpt["num_training_steps"]
     
     _rng_unpack(ckpt["rng_state"])
+    generator.manual_seed(ckpt["epoch_seed"])
+    # _set_rng_state_for_this_rank(ckpt["rng_states_per_rank"], generator)
 
     return_dict.update({
         "last_epoch": ckpt["last_epoch"],
         "batch_in_last_epoch": ckpt["batch_in_last_epoch"],
         "global_steps": ckpt["global_steps"],
-        "sampler_state": ckpt["sampler_state"],
         "world_size": ckpt["world_size"],
         "gradient_accumulation_steps": ckpt["gradient_accumulation_steps"],
         "per_device_train_batch_size": ckpt["per_device_train_batch_size"],
         "rank": int(os.environ.get("RANK", 0)),
+        "epoch_seed": ckpt["epoch_seed"],
     })
 
     return return_dict

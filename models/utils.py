@@ -3,6 +3,8 @@ import logging
 import torch
 import numpy as np
 import random
+import hashlib
+
 
 def log_rank0(message: str):
     if int(os.environ.get("RANK", 0)) == 0:
@@ -53,3 +55,7 @@ def count_parameters(model, print_layers = False):
 def seed_worker(worker_id):
     worker_seed = (torch.initial_seed() + worker_id) % 2**32
     np.random.seed(worker_seed); random.seed(worker_seed)
+
+
+def gen_hex(gen: torch.Generator) -> str:
+    return hashlib.sha1(gen.get_state().cpu().numpy().tobytes()).hexdigest()[:12]

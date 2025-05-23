@@ -1,5 +1,6 @@
 from models.utils import log_rank0
 import os
+import logging
 from typing import Dict, List, Optional
 
 import torch
@@ -116,13 +117,13 @@ def get_modality_length_grouped_indices(
     mm_shuffle = [
         mm_indices[i]
         for i in get_length_grouped_indices(
-            mm_lengths, batch_size, world_size, generator=None
+            mm_lengths, batch_size, world_size, generator=generator
         )
     ]
     lang_shuffle = [
         lang_indices[i]
         for i in get_length_grouped_indices(
-            lang_lengths, batch_size, world_size, generator=None
+            lang_lengths, batch_size, world_size, generator=generator
         )
     ]
     megabatch_size = world_size * batch_size
