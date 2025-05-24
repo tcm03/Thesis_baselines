@@ -23,7 +23,7 @@ import torch.multiprocessing as mp
 from resource_logging import measure_resource_usage, MeasureResourceUsage
 
 from hf_arguments import *
-from backbones.language_models.cambrian_llama import CambrianLlamaForCausalLM
+from backbones.language_models.cambrian_llama import CambrianLlamaForCausalLM, CambrianLlamaForSequenceClassification
 from backbones import conversation as conversation_lib
 from supervised_dataset import make_supervised_data_module
 from grouped_sampler import LengthGroupedSampler
@@ -200,10 +200,15 @@ def train():
     model_args.local_dir = model_args.output_model_filename
     # pyre-fixme[16]: `CambrianLlamaForCausalLM` has no attribute `from_pretrained`.
     
-    model = CambrianLlamaForCausalLM.from_pretrained(
-        # pyre-fixme[16]: `DataClass` has no attribute `input_model_local_path`.
-        model_args.input_model_filename,
-    )
+    if model_args.cls_only:
+        model = CambrianLlamaForSequenceClassification.from_pretrained(
+            model_args.input_model_filename,
+        )
+    else:
+        model = CambrianLlamaForCausalLM.from_pretrained(
+            # pyre-fixme[16]: `DataClass` has no attribute `input_model_local_path`.
+            model_args.input_model_filename,
+        )
     model.config.use_cache = False
     # pyre-fixme[16]: `DataClass` has no attribute `freeze_backbone`.
     if model_args.freeze_backbone:
@@ -352,17 +357,9 @@ def train():
     model = convert_bn_to_float(model)
     if master_process:
         count_parameters(model, print_layers = True)
-        logging.info(f"gradient_checkpointing: {model.is_gradient_checkpointing}")
     if ddp:
         model = DDP(model, device_ids=[ddp_local_rank])
 
-    # test tokenizer by encoding "This video is great" and then decode back
-    # test_str = "This video is great"
-    # test_tokens = tokenizer.encode(test_str)
-    # tmp_ids = torch.tensor([271, 17, 2835, 4478, 315, 220, 13])
-    # test_decoded = tokenizer.decode(tmp_ids)
-    # logging.info(f'test_str: {test_str}, test_tokens: {test_tokens}, test_decoded: {test_decoded}')
-    # return
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
     train_dataset = data_module["train_dataset"]
     eval_dataset = data_module["eval_dataset"]
@@ -418,17 +415,6 @@ def train():
         num_training_steps=num_training_steps
     )
     
-    # if training_args.resume:
-    #     assert custom_args.input_checkpoint_path is not None, "Checkpoint path is required for resuming training"
-    #     ( 
-    #         start_epoch, 
-    #         global_steps
-    #     ) = load_checkpoint(
-    #         training_args.input_checkpoint_path,
-    #         raw_model,
-    #         optimizer,
-    #         scheduler=scheduler
-    #     )
     global_steps: int = 0
     logging_steps: int = int(training_args.logging_steps)
     eval_steps: int = int(training_args.eval_steps)

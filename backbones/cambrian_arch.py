@@ -1760,10 +1760,6 @@ class CambrianMetaForCausalLM(ABC):
                 inp[-num_new:] = mean_vec
                 # out[-num_new:] = mean_vec # we don't generate <cls> token so now need to initialize the lm head
 
-
-
-class CambrianMetaForSequenceClassification(ABC):
-
     @abstractmethod
     def get_model(self):
         pass

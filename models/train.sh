@@ -37,6 +37,7 @@ CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=4 --master_port=29503 models/tr
   --tune_mm_mlp_adapter True \
   --tune_lm_head True \
   --tune_cls_head True \
+  --cls_only True \
   --freeze_mm_mlp_adapter False \
   --freeze_backbone True \
   --gradient_checkpointing True \
@@ -59,7 +60,6 @@ CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=4 --master_port=29503 models/tr
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 1 \
   --gradient_accumulation_steps 8 \
-  --group_by_modality_length True \
   --resume_from_checkpoint $PREV_STAGE_CHECKPOINT
   # --dataloader_num_workers 0 \
   # --output_file "test.safetensors" \

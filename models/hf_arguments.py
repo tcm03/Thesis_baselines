@@ -12,6 +12,7 @@ class ModelArguments:
     tune_mm_mlp_adapter: bool = field(default=False)
     tune_lm_head: bool = field(default=False)
     tune_cls_head: bool = field(default=False)
+    cls_only: bool = field(default=False)
     vision_tower: Optional[str] = field(default=None)
     mm_vision_select_layer: Optional[int] = field(
         default=-1
