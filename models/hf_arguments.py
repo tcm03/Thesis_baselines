@@ -6,6 +6,8 @@ import transformers
 class ModelArguments:
     input_model_filename: Optional[str] = field(default=None)
     output_model_filename: Optional[str] = field(default=None)
+    checkpoint_fname: Optional[str] = field(default=None)
+    
     model_name_or_path: Optional[str] = field(default="facebook/opt-125m")
     version: Optional[str] = field(default="v0")
     freeze_backbone: bool = field(default=False)
@@ -13,6 +15,7 @@ class ModelArguments:
     tune_lm_head: bool = field(default=False)
     tune_cls_head: bool = field(default=False)
     cls_only: bool = field(default=False)
+    tune_embed_tokens: bool = field(default=False)
     vision_tower: Optional[str] = field(default=None)
     mm_vision_select_layer: Optional[int] = field(
         default=-1
@@ -89,7 +92,7 @@ class DataArguments:
 
 
 @dataclass
-class TrainingArguments(transformers.TrainingArguments):
+class CustomTrainingArguments(transformers.TrainingArguments):
 
     remove_unused_columns: bool = field(default=False)
     freeze_mm_mlp_adapter: bool = field(default=False)
@@ -135,12 +138,12 @@ class TrainingArguments(transformers.TrainingArguments):
     # per_device_train_batch_size is inherited from HF
     # per_device_eval_batch_size is inherited from HF
 
-    dataloader_num_workers: int = field(
-        default=0,
-        metadata={
-            "help": "Number of workers for the dataloader"
-        }
-    )
+    # dataloader_num_workers: int = field(
+    #     default=0,
+    #     metadata={
+    #         "help": "Number of workers for the dataloader"
+    #     }
+    # )
 
     train_log: Optional[str] = field(default=None)
     train_perf_log: Optional[str] = field(default=None)
