@@ -357,6 +357,7 @@ def train():
         count_parameters(model, print_layers = True)
     if ddp:
         model = DDP(model, device_ids=[ddp_local_rank])
+    log_rank0("Wrapped in DDP")
 
     num_epochs: int = training_args.num_train_epochs
     last_epoch: int = 0
@@ -378,6 +379,7 @@ def train():
             load_optimizer=True, 
             load_scheduler=True
         )
+        log_rank0("Loaded checkpoint")
         world_size = ckpt["world_size"]
         assert world_size == ddp_world_size, f"World size mismatch: ckpt world size = {world_size} != current world size = {ddp_world_size}"
         ckpt_gradient_accumulation_steps = ckpt["gradient_accumulation_steps"]
@@ -467,6 +469,7 @@ def train():
     train_perf: List[PerfMetrics] = []
     eval_perf: List[PerfMetrics] = []
 
+    log_rank0("Starting training")
     for epoch in range(from_epoch, num_epochs):
         if ddp:
             # Ensure each process sees a different ordering at each epoch
@@ -480,6 +483,7 @@ def train():
             # if epoch == from_epoch and batch_idx == from_batch:
             #     log_rank0(f"[DBG] first batch this run: gen={gen_hex(generator)}")
             if epoch == from_epoch and batch_idx < from_batch:
+                log_rank0(f"Skipping epoch {epoch} batch {batch_idx}")
                 continue
             log_rank0(f'Epoch {epoch + 1}/{num_epochs}, batch {batch_idx + 1}/{len(train_dataloader)}')
 

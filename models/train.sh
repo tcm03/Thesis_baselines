@@ -3,9 +3,9 @@ PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
 TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_engcaption_cls.json"
 EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_engcaption_cls.json"
 
-OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txtcls0"
-CKPT_NAME="longvu_llama_snapugc0_txtcls0"
-PREV_STAGE_CHECKPOINT=""
+OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txtcls1"
+CKPT_NAME="longvu_llama_snapugc0_txtcls1"
+PREV_STAGE_CHECKPOINT="./checkpoints/longvu_llama_snapugc0_txtcls0/longvu_llama_snapugc0_txtcls0-epoch0-step379.pt"
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
 
@@ -61,4 +61,4 @@ CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=4 --master_port=29503 models/tr
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 1 \
   --gradient_accumulation_steps 8 \
-  # --resume_from_checkpoint $PREV_STAGE_CHECKPOINT
+  --resume_from_checkpoint $PREV_STAGE_CHECKPOINT
