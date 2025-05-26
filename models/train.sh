@@ -52,9 +52,9 @@ CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=2 --master_port=29503 models/tr
   --highres True \
   --drop_threshold 0.8 \
   --eval_strategy "steps" \
-  --eval_steps 20 \
+  --eval_steps 2 \
   --save_strategy "steps" \
-  --save_steps 20 \
+  --save_steps 200 \
   --logging_steps 2 \
   --num_train_epochs 2 \
   --warmup_ratio 0.03 \

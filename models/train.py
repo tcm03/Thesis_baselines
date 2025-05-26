@@ -12,7 +12,7 @@ import os
 import json
 from contextlib import nullcontext
 import argparse
-from typing import List, Dict
+from typing import List, Dict, Any
 from safetensors.torch import save_file
 from torch.utils.data import Dataset, DataLoader
 from transformers import BaseImageProcessor
@@ -33,6 +33,10 @@ from train_log import *
 from models.utils import count_parameters, log_rank0, seed_worker, gen_hex
 from models.train_ckpt import *
 
+from backbones.mm_datautils import (
+    KeywordsStoppingCriteria,
+)
+
 from collections import defaultdict
 import logging
 from multiprocessing import cpu_count
@@ -51,7 +55,21 @@ if torch.cuda.is_available():
 
 ddp = int(os.environ.get("RANK", -1)) != -1
 
-def forward_step(model, batch, device, eval_mode=False, cls_only=False):
+def forward_step(
+    model, 
+    batch, 
+    device,
+    model_args,  
+    tokenizer,
+    eval_mode=False, 
+    cls_only=False,
+    gen_config_dict: Dict[str, Any]=None
+):
+    if gen_config_dict is not None and cls_only:
+        raise ValueError("gen_config_dict for text generation is not supported for cls_only")
+    if gen_config_dict is not None and not eval_mode:
+        raise ValueError("gen_config_dict for text generation is only supported for eval_mode")
+    
     input_ids = batch["input_ids"].to(device)
     labels = batch["labels"].to(device)
     eng_classes = batch["eng_classes"].to(device)
@@ -77,6 +95,28 @@ def forward_step(model, batch, device, eval_mode=False, cls_only=False):
             image_aux_attention_masks_list=image_aux_attention_masks_list,
             image_sizes=image_sizes,
         )
+        if gen_config_dict is not None:
+            # @tcm: add gen_config_dict to model.generate()
+            conv = conversation_lib.conv_templates[model_args.version].copy()
+            stop_str = conv.sep if conv.sep_style != conversation_lib.SeparatorStyle.TWO else conv.sep2
+            keywords = [stop_str]
+            stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
+            raw = model.module if hasattr(model, "module") else model
+            with torch.inference_mode():
+                output_ids = raw.generate(
+                    input_ids,
+                    images=images,
+                    image_sizes=image_sizes,
+                    do_sample=gen_config_dict.get("do_sample", False),
+                    temperature=gen_config_dict.get("temperature", 1.),
+                    max_new_tokens=gen_config_dict.get("max_new_tokens", 128),
+                    num_beams=gen_config_dict.get("num_beams", 3),
+                    use_cache=gen_config_dict.get("use_cache", True),
+                    stopping_criteria=[stopping_criteria],
+                )
+            pred = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+            log_rank0(f"In forward_step(): pred: {pred}")
+            outputs["pred"] = pred
     else:
         if cls_only:
             outputs = model(
@@ -521,7 +561,7 @@ def train():
             ddp_context = model.no_sync() if (ddp and not is_last_micro) else nullcontext()
             train_labels = batch["eng_classes"].to(device)
             with ddp_context:
-                outputs = forward_step(model, batch, device, cls_only=model_args.cls_only)
+                outputs = forward_step(model, batch, device, model_args, tokenizer, cls_only=model_args.cls_only)
                 cur_preds = torch.argmax(outputs.cls_logits, dim=-1)
                 train_device_preds.append(cur_preds)
                 train_device_gold_labels.append(train_labels)
@@ -603,7 +643,21 @@ def train():
                         eval_labels = eval_batch["eng_classes"].to(device)
 
                         with torch.no_grad():
-                            outputs = forward_step(model, eval_batch, device, eval_mode=True, cls_only=model_args.cls_only)
+                            outputs = forward_step(
+                                model, 
+                                eval_batch, 
+                                device, 
+                                model_args, 
+                                tokenizer, 
+                                eval_mode=True, 
+                                cls_only=model_args.cls_only,
+                                gen_config_dict={
+                                    "do_sample": False,
+                                    "max_new_tokens": 128,
+                                    "num_beams": 3,
+                                    "use_cache": True,
+                                }
+                            )
                             eval_logits = outputs.cls_logits
                             cur_preds = torch.argmax(eval_logits, dim=-1)
                             eval_device_preds.append(cur_preds)

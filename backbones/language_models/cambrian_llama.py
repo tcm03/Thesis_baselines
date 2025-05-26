@@ -301,6 +301,12 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
         cache_position=None,
     ) -> Union[Tuple, CausalLMOutputWithPast]:
 
+        # log_rank0(f"In CambrianLlamaForCausalLM.forward(): input_ids: {input_ids}")
+        # log_rank0(f"In CambrianLlamaForCausalLM.forward(): attention_mask: {attention_mask}")
+        # log_rank0(f"In CambrianLlamaForCausalLM.forward(): filtered input_ids: {input_ids[attention_mask]}")
+        if input_ids is None:
+            log_rank0(f"In CambrianLlamaForCausalLM.forward(): input_ids is None, input_embeds: {inputs_embeds}")
+
         final_vision_feature_size = None
         # input_ids.shape: [bs, seq_len], e.g. bs = 1 and seq_len = 8192
         # labels.shape: [bs, seq_len], e.g. bs = 1 and seq_len = 8192
@@ -577,12 +583,14 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
     ):
         images = kwargs.pop("images", None)
         image_sizes = kwargs.pop("image_sizes", None)
+        log_rank0(f"In CambrianLlamaForCausalLM.prepare_inputs_for_generation(): before super(): input_ids: {input_ids}")
         inputs = super().prepare_inputs_for_generation(
             input_ids,
             past_key_values=past_key_values,
             inputs_embeds=inputs_embeds,
             **kwargs,
         )
+        log_rank0(f"In CambrianLlamaForCausalLM.prepare_inputs_for_generation(): input_ids: {input_ids}")
         if images is not None:
             inputs["images"] = images
         if image_sizes is not None:
