@@ -1,9 +1,12 @@
+import sys
+from pathlib import Path
+sys.path.append(str(Path.cwd()))
+
 import torch
 import torch.distributed as dist
 from torch.distributed import init_process_group, destroy_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
-from torch.optim.lr_scheduler import LambdaLR # for verifying the correctness of checkpoint resumption only, no real use
 
 import os
 import json
@@ -16,9 +19,6 @@ from transformers import BaseImageProcessor
 from transformers import get_cosine_schedule_with_warmup
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 # import annotation.utils (which imports decord) after torch to avoid bug
-import sys
-from pathlib import Path
-sys.path.append(str(Path.cwd()))
 import torch.multiprocessing as mp
 from resource_logging import measure_resource_usage, MeasureResourceUsage
 
@@ -51,7 +51,7 @@ if torch.cuda.is_available():
 
 ddp = int(os.environ.get("RANK", -1)) != -1
 
-def forward_step(model, batch, device, eval_mode=False):
+def forward_step(model, batch, device, eval_mode=False, cls_only=False):
     input_ids = batch["input_ids"].to(device)
     labels = batch["labels"].to(device)
     eng_classes = batch["eng_classes"].to(device)
@@ -78,16 +78,28 @@ def forward_step(model, batch, device, eval_mode=False):
             image_sizes=image_sizes,
         )
     else:
-        outputs = model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            labels=labels,
-            eng_classes=eng_classes,
-            images=images,
-            image_aux_attention_masks_list=image_aux_attention_masks_list,
-            image_sizes=image_sizes,
-        )
+        if cls_only:
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                # labels=labels,
+                eng_classes=eng_classes,
+                images=images,
+                image_aux_attention_masks_list=image_aux_attention_masks_list,
+                image_sizes=image_sizes,
+            )
+        else:
+            outputs = model(
+                input_ids=input_ids,
+                attention_mask=attention_mask,
+                position_ids=position_ids,
+                labels=labels,
+                eng_classes=eng_classes,
+                images=images,
+                image_aux_attention_masks_list=image_aux_attention_masks_list,
+                image_sizes=image_sizes,
+            )
     return outputs
 
 def evaluate_perf(
@@ -195,6 +207,9 @@ def train():
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
     dist.barrier()
 
+    if training_args.bf16 and training_args.fp16:
+        raise ValueError("Cannot use both bf16 and fp16")
+
     # pyre-fixme[16]: `DataClass` has no attribute `output_model_local_path`.
     training_args.output_dir = model_args.output_model_filename
     # pyre-fixme[16]: `DataClass` has no attribute `local_dir`.
@@ -267,7 +282,7 @@ def train():
             if vision_tower_aux_list is not None:
                 for vision_tower_aux in vision_tower_aux_list:
                     vision_tower_aux.to(
-                        dtype=torch.bfloat16, device=training_args.device  # pyre-fixme
+                        dtype=torch.bfloat16 if training_args.bf16 else torch.float16, device=training_args.device  # pyre-fixme
                     )
         else:
             # vision_tower.to(device=training_args.device)
@@ -309,12 +324,16 @@ def train():
             for name, param in model.named_parameters():
                 if any(listed_name in name for listed_name in tune_modules):
                     param.requires_grad = True
-        if model_args.tune_lm_head:
+        if model_args.tune_lm_head and not model_args.cls_only:
             for p in model.lm_head.parameters():
                 p.requires_grad = True
         if model_args.tune_cls_head:
-            for p in model.cls_head.parameters():
-                p.requires_grad = True
+            if not model_args.cls_only:
+                for p in model.cls_head.parameters():
+                    p.requires_grad = True
+            else:
+                for p in model.score.parameters():
+                    p.requires_grad = True
         if model_args.tune_embed_tokens:
             for p in model.get_input_embeddings().parameters():
                 p.requires_grad = True
@@ -348,7 +367,10 @@ def train():
         model.initialize_vision_tokenizer(model_args, tokenizer=tokenizer)
         log_rank0(f"After initializing tokenizer, vocab size: {len(tokenizer)}")
     
-    model.to(torch.bfloat16)
+    if training_args.bf16:
+        model.to(torch.bfloat16)
+    elif training_args.fp16:
+        model.to(torch.float16)
     model.to(device)
     # pyre-fixme
     def convert_bn_to_float(model):
@@ -499,7 +521,7 @@ def train():
             ddp_context = model.no_sync() if (ddp and not is_last_micro) else nullcontext()
             train_labels = batch["eng_classes"].to(device)
             with ddp_context:
-                outputs = forward_step(model, batch, device)
+                outputs = forward_step(model, batch, device, cls_only=model_args.cls_only)
                 cur_preds = torch.argmax(outputs.cls_logits, dim=-1)
                 train_device_preds.append(cur_preds)
                 train_device_gold_labels.append(train_labels)
@@ -535,8 +557,9 @@ def train():
                 # zero out grads for all original tokens, keep <cls> trainable
                 with torch.no_grad():
                     grad = model.module.get_input_embeddings().weight.grad if hasattr(model, "module") else model.get_input_embeddings().weight.grad
-                    assert grad is not None and grad.ndim == 2, "grad is not None and grad.ndim == 2"
-                    grad[:-1, :] = 0          # zero out grads for all original tokens
+                    if grad is not None:
+                        assert grad.ndim == 2, "require grad.ndim == 2"
+                        grad[:-1, :] = 0          # zero out grads for all original tokens
                 
                 optimizer.step()
                 scheduler.step()
@@ -580,7 +603,7 @@ def train():
                         eval_labels = eval_batch["eng_classes"].to(device)
 
                         with torch.no_grad():
-                            outputs = forward_step(model, eval_batch, device, eval_mode=True)
+                            outputs = forward_step(model, eval_batch, device, eval_mode=True, cls_only=model_args.cls_only)
                             eval_logits = outputs.cls_logits
                             cur_preds = torch.argmax(eval_logits, dim=-1)
                             eval_device_preds.append(cur_preds)

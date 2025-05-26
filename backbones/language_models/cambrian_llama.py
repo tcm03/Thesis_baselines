@@ -15,6 +15,7 @@
 
 from typing import List, Optional, Tuple, Union
 import os
+from models.utils import log_rank0
 
 import torch
 import torch.nn as nn
@@ -591,11 +592,13 @@ class CambrianLlamaForSequenceClassification(LlamaForSequenceClassification, Cam
     config_class = CambrianConfig
 
     def __init__(self, config):
-        super(LlamaForCausalLM, self).__init__(config)
+        super(LlamaForSequenceClassification, self).__init__(config)
 
         self.model = CambrianLlamaModel(config)
         self.pretraining_tp = config.pretraining_tp
         self.vocab_size = config.vocab_size
+        self.num_labels = config.num_labels
+        self.score = nn.Linear(config.hidden_size, self.num_labels, bias=False)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -640,14 +643,14 @@ class CambrianLlamaForSequenceClassification(LlamaForSequenceClassification, Cam
                 final_vision_feature_size,
                 global_context_feature,
             ) = self.prepare_inputs_labels_for_multimodal(
-                input_ids,
-                position_ids,
-                attention_mask,
-                past_key_values,
-                labels,
-                images,
-                image_aux_attention_masks_list,
-                image_sizes,
+                input_ids=input_ids,
+                position_ids=position_ids,
+                attention_mask=attention_mask,
+                past_key_values=past_key_values,
+                labels=None,
+                images=images,
+                image_aux_attention_masks_list=image_aux_attention_masks_list,
+                image_sizes=image_sizes,
             )
         assert cls_pos is not None, "Batch CLS token positions not found"
 
@@ -791,10 +794,12 @@ class CambrianLlamaForSequenceClassification(LlamaForSequenceClassification, Cam
             # @tcm: attempt special cls token
             cls_logits = self.score(cls_states) # [bs, 3]
             cls_logits = cls_logits.float()
-        # @tcm: attempt special cls token
-        cls_loss_fct = CrossEntropyLoss()
-        assert cls_logits.shape == (eng_classes.shape[0], 3), f"wrong cls_logits shape, expected: {eng_classes.shape[0]}, 3, but got: {cls_logits.shape}"
-        cls_loss = cls_loss_fct(cls_logits, eng_classes)
+        cls_loss = None
+        if eng_classes is not None:
+            # @tcm: attempt special cls token
+            cls_loss_fct = CrossEntropyLoss()
+            assert cls_logits.shape == (eng_classes.shape[0], 3), f"wrong cls_logits shape, expected: {eng_classes.shape[0]}, 3, but got: {cls_logits.shape}"
+            cls_loss = cls_loss_fct(cls_logits, eng_classes)
 
         if not return_dict:
             output = (cls_logits,) + outputs[1:]
