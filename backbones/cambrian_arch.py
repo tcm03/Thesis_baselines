@@ -813,6 +813,7 @@ class CambrianMetaForCausalLM(ABC):
                 None,
                 None,
                 None,
+                None,
             )
 
         # batch videos of same duration: [torch.Tensor([bs, # frames, C, H, W]), torch.Tensor([bs, # frames, C, H, W])]

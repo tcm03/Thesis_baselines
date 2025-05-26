@@ -281,6 +281,247 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
     def get_model(self):
         return self.model
 
+    # def forward(
+    #     self,
+    #     # pyre-fixme[9]: input_ids has type `LongTensor`; used as `None`.
+    #     input_ids: torch.LongTensor = None,
+    #     attention_mask: Optional[torch.Tensor] = None,
+    #     position_ids: Optional[torch.LongTensor] = None,
+    #     past_key_values: Optional[List[torch.FloatTensor]] = None,
+    #     inputs_embeds: Optional[torch.FloatTensor] = None,
+    #     labels: Optional[torch.LongTensor] = None,
+    #     eng_classes: Optional[torch.LongTensor] = None,
+    #     use_cache: Optional[bool] = None,
+    #     output_attentions: Optional[bool] = None,
+    #     output_hidden_states: Optional[bool] = None,
+    #     images: Optional[torch.FloatTensor] = None,
+    #     image_aux_attention_masks_list: Optional[List[torch.Tensor]] = None,
+    #     image_sizes: Optional[List[List[int]]] = None,
+    #     return_dict: Optional[bool] = None,
+    #     cache_position=None,
+    # ) -> Union[Tuple, CausalLMOutputWithPast]:
+
+    #     # 🔹 Detect incremental-decode step ------------------------------
+    #     incremental = past_key_values is not None and (
+    #         input_ids is None or input_ids.size(-1) == 0
+    #     )
+
+    #     if input_ids is None:
+    #         log_rank0(f"In CambrianLlamaForCausalLM.forward(): input_ids is None, input_embeds: {inputs_embeds}")
+
+    #     final_vision_feature_size = None
+    #     # input_ids.shape: [bs, seq_len], e.g. bs = 1 and seq_len = 8192
+    #     # labels.shape: [bs, seq_len], e.g. bs = 1 and seq_len = 8192
+    #     cls_pos = None
+    #     if inputs_embeds is None:
+    #         (
+    #             input_ids,
+    #             position_ids,
+    #             attention_mask,
+    #             past_key_values,
+    #             inputs_embeds,
+    #             labels,
+    #             cls_pos,
+    #             vision_tower_aux_feature_list,
+    #             vision_tower_aux_attention_masks_list,
+    #             final_vision_feature_size,
+    #             global_context_feature,
+    #         ) = self.prepare_inputs_labels_for_multimodal(
+    #             input_ids,
+    #             position_ids,
+    #             attention_mask,
+    #             past_key_values,
+    #             labels,
+    #             images,
+    #             image_aux_attention_masks_list,
+    #             image_sizes,
+    #         )
+    #         assert cls_pos is not None, "Batch CLS token positions not found"
+
+    #     if IS_XLA_AVAILABLE:
+    #         # Very Important for TorchXLA
+    #         # self.model.gradient_checkpointing = False
+
+    #         # pyre-fixme[21]: Could not find module `torch_xla.utils.checkpoint`.
+    #         from torch_xla.utils.checkpoint import checkpoint
+
+    #         # self.model.gradient_checkpointing = True
+    #         # pyre-fixme[16]: `CambrianLlamaModel` has no attribute
+    #         #  `_gradient_checkpointing_func`.
+    #         self.model._gradient_checkpointing_func = checkpoint
+
+    #     output_attentions = (
+    #         output_attentions
+    #         if output_attentions is not None
+    #         # pyre-fixme[16]: `CambrianLlamaForCausalLM` has no attribute `config`.
+    #         else self.config.output_attentions
+    #     )
+    #     output_hidden_states = (
+    #         output_hidden_states
+    #         if output_hidden_states is not None
+    #         else self.config.output_hidden_states
+    #     )
+    #     return_dict = (
+    #         return_dict if return_dict is not None else self.config.use_return_dict
+    #     )
+
+    #     # training
+    #     if IS_XLA_AVAILABLE:
+    #         # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
+    #         # pyre-fixme[29]: `CambrianLlamaModel` is not a function.
+    #         outputs = self.model(
+    #             input_ids=input_ids,
+    #             attention_mask=attention_mask,
+    #             position_ids=position_ids,
+    #             past_key_values=past_key_values,
+    #             inputs_embeds=inputs_embeds,
+    #             use_cache=use_cache,
+    #             output_attentions=output_attentions,
+    #             output_hidden_states=output_hidden_states,
+    #             return_dict=return_dict,
+    #             # pyre-fixme[61]: `vision_tower_aux_feature_list` is undefined, or
+    #             #  not always defined.
+    #             vision_tower_aux_feature_list=vision_tower_aux_feature_list,
+    #             # pyre-fixme[61]: `vision_tower_aux_attention_masks_list` is
+    #             #  undefined, or not always defined.
+    #             vision_tower_aux_attention_masks_list=vision_tower_aux_attention_masks_list,
+    #             final_vision_feature_size=final_vision_feature_size,
+    #             # pyre-fixme[61]: `global_context_feature` is undefined, or not
+    #             #  always defined.
+    #             global_context_feature=global_context_feature,
+    #         )
+
+    #     # inference
+    #     else:
+    #         if hasattr(self, "vision_tower_aux_feature_list"):
+    #             # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
+    #             # pyre-fixme[29]: `CambrianLlamaModel` is not a function.
+    #             outputs = self.model(
+    #                 input_ids=input_ids,
+    #                 attention_mask=attention_mask,
+    #                 position_ids=position_ids,
+    #                 past_key_values=past_key_values,
+    #                 inputs_embeds=inputs_embeds,
+    #                 use_cache=use_cache,
+    #                 output_attentions=output_attentions,
+    #                 output_hidden_states=output_hidden_states,
+    #                 return_dict=return_dict,
+    #                 vision_tower_aux_feature_list=(
+    #                     # pyre-fixme[61]: `vision_tower_aux_feature_list` is
+    #                     #  undefined, or not always defined.
+    #                     vision_tower_aux_feature_list
+    #                     if inputs_embeds is None
+    #                     # pyre-fixme[16]: `CambrianLlamaForCausalLM` has no
+    #                     #  attribute `vision_tower_aux_feature_list`.
+    #                     else self.vision_tower_aux_feature_list
+    #                 ),
+    #                 vision_tower_aux_attention_masks_list=(
+    #                     # pyre-fixme[61]: `vision_tower_aux_attention_masks_list` is
+    #                     #  undefined, or not always defined.
+    #                     vision_tower_aux_attention_masks_list
+    #                     if inputs_embeds is None
+    #                     # pyre-fixme[16]: `CambrianLlamaForCausalLM` has no
+    #                     #  attribute `vision_tower_aux_attention_masks_list`.
+    #                     else self.vision_tower_aux_attention_masks_list
+    #                 ),
+    #                 final_vision_feature_size=(
+    #                     final_vision_feature_size
+    #                     if inputs_embeds is None
+    #                     # pyre-fixme[16]: `CambrianLlamaForCausalLM` has no
+    #                     #  attribute `final_vision_feature_size`.
+    #                     else self.final_vision_feature_size
+    #                 ),
+    #                 global_context_feature=(
+    #                     # pyre-fixme[61]: `global_context_feature` is undefined, or
+    #                     #  not always defined.
+    #                     global_context_feature
+    #                     if inputs_embeds is None
+    #                     # pyre-fixme[16]: `CambrianLlamaForCausalLM` has no
+    #                     #  attribute `global_context_feature`.
+    #                     else self.global_context_feature
+    #                 ),
+    #             )
+    #         else:
+    #             # pyre-fixme[29]: `CambrianLlamaModel` is not a function.
+    #             outputs = self.model(
+    #                 input_ids=input_ids,
+    #                 attention_mask=attention_mask,
+    #                 position_ids=position_ids,
+    #                 past_key_values=past_key_values,
+    #                 inputs_embeds=inputs_embeds,
+    #                 use_cache=use_cache,
+    #                 output_attentions=output_attentions,
+    #                 output_hidden_states=output_hidden_states,
+    #                 return_dict=return_dict,
+    #                 # final_vision_feature_size=final_vision_feature_size,
+    #             )
+
+    #     # hidden_states = outputs[0] # outputs[0].shape: [bs, seq_len, 3072], e.g. bs = 1 and seq_len = 1297
+    #     # @tcm: attempt special cls token (assume last token is cls, for now)
+    #     hidden_states = outputs[0]
+    #     if not incremental:
+    #         assert hidden_states.shape[0] == len(cls_pos), f"Batch size of hidden states different from batch size of cls_pos"
+    #         cls_states = []
+    #         for i, pos in enumerate(cls_pos):
+    #             cls_states.append(hidden_states[i, pos, :])
+    #         cls_states = torch.stack(cls_states, dim=0)
+    #         assert cls_states.shape == (hidden_states.shape[0], hidden_states.shape[2]), f"Shape of cls_states different from shape of hidden_states"
+    #     if self.config.pretraining_tp > 1:
+    #         lm_head_slices = self.lm_head.weight.split(
+    #             self.vocab_size // self.config.pretraining_tp, dim=0
+    #         )
+    #         logits = [
+    #             F.linear(hidden_states, lm_head_slices[i])
+    #             for i in range(self.config.pretraining_tp)
+    #         ]
+    #         logits = torch.cat(logits, dim=-1)
+    #     else:
+    #         logits = None
+    #         logits = self.lm_head(hidden_states) # logits.shape: [bs, seq_len, vocab_size], e.g. bs = 1, seq_len = 1297, vocab_size = 128256
+    #         logits = logits.float()
+    #         if not incremental:
+    #             # @tcm: attempt special cls token
+    #             cls_logits = self.cls_head(cls_states) # [bs, 3]
+    #             cls_logits = cls_logits.float()
+
+    #     loss = None
+    #     # assert labels is not None, "@tcm: for eng_classes and labels, labels must not be None"
+    #     if labels is not None:
+    #         txt_loss = None
+    #         # Shift so that tokens < n predict n
+    #         shift_logits = logits[..., :-1, :].contiguous()
+    #         shift_labels = labels[..., 1:].contiguous()
+    #         # Flatten the tokens
+    #         loss_fct = CrossEntropyLoss()
+    #         shift_logits = shift_logits.view(-1, self.config.vocab_size)
+    #         shift_labels = shift_labels.view(-1)
+    #         # Enable model parallelism
+    #         shift_labels = shift_labels.to(shift_logits.device)
+    #         txt_loss = loss_fct(shift_logits, shift_labels)
+
+    #         # @tcm: attempt special cls token
+    #         cls_loss_fct = CrossEntropyLoss()
+    #         assert cls_logits.shape == (eng_classes.shape[0], 3), f"wrong cls_logits shape, expected: {eng_classes.shape[0]}, 3, but got: {cls_logits.shape}"
+    #         cls_loss = cls_loss_fct(cls_logits, eng_classes)
+    #         if txt_loss is not None:    
+    #             loss = 0.5 * (txt_loss + cls_loss)
+    #         else:
+    #             loss = cls_loss
+
+    #     if not return_dict:
+    #         output = (logits, cls_logits, labels) + outputs[1:]
+    #         return (loss,) + output if loss is not None else output
+
+    #     return CustomCausalLMOutputWithPast(
+    #         loss=loss,
+    #         logits=logits,
+    #         cls_logits=cls_logits,
+    #         labels=labels,
+    #         past_key_values=outputs.past_key_values,
+    #         hidden_states=outputs.hidden_states,
+    #         attentions=outputs.attentions,
+    #     )
+
     def forward(
         self,
         # pyre-fixme[9]: input_ids has type `LongTensor`; used as `None`.
@@ -299,19 +540,16 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
         image_sizes: Optional[List[List[int]]] = None,
         return_dict: Optional[bool] = None,
         cache_position=None,
-    ) -> Union[Tuple, CausalLMOutputWithPast]:
+    ):
+        # -------- Detect incremental decode ---------------------------
+        incremental = past_key_values is not None and (
+            input_ids is None or input_ids.size(-1) == 0
+        )
 
-        # log_rank0(f"In CambrianLlamaForCausalLM.forward(): input_ids: {input_ids}")
-        # log_rank0(f"In CambrianLlamaForCausalLM.forward(): attention_mask: {attention_mask}")
-        # log_rank0(f"In CambrianLlamaForCausalLM.forward(): filtered input_ids: {input_ids[attention_mask]}")
-        if input_ids is None:
-            log_rank0(f"In CambrianLlamaForCausalLM.forward(): input_ids is None, input_embeds: {inputs_embeds}")
-
-        final_vision_feature_size = None
-        # input_ids.shape: [bs, seq_len], e.g. bs = 1 and seq_len = 8192
-        # labels.shape: [bs, seq_len], e.g. bs = 1 and seq_len = 8192
-        cls_pos = None
-        if inputs_embeds is None:
+        # -------- First call (prefill) -------------------------------
+        if not incremental:
+            assert inputs_embeds is None, "inputs_embeds should be None in prefill phase"
+            cls_pos = None
             (
                 input_ids,
                 position_ids,
@@ -334,19 +572,8 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
                 image_aux_attention_masks_list,
                 image_sizes,
             )
-        assert cls_pos is not None, "Batch CLS token positions not found"
-
-        if IS_XLA_AVAILABLE:
-            # Very Important for TorchXLA
-            # self.model.gradient_checkpointing = False
-
-            # pyre-fixme[21]: Could not find module `torch_xla.utils.checkpoint`.
-            from torch_xla.utils.checkpoint import checkpoint
-
-            # self.model.gradient_checkpointing = True
-            # pyre-fixme[16]: `CambrianLlamaModel` has no attribute
-            #  `_gradient_checkpointing_func`.
-            self.model._gradient_checkpointing_func = checkpoint
+            assert cls_pos is not None, "Batch CLS token positions not found" => still die in this assertion !!!
+        # NOTE: cls_pos undefined in incremental mode – that’s fine.
 
         output_attentions = (
             output_attentions
@@ -363,150 +590,46 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
             return_dict if return_dict is not None else self.config.use_return_dict
         )
 
-        # training
-        if IS_XLA_AVAILABLE:
-            # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
-            # pyre-fixme[29]: `CambrianLlamaModel` is not a function.
-            outputs = self.model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                past_key_values=past_key_values,
-                inputs_embeds=inputs_embeds,
-                use_cache=use_cache,
-                output_attentions=output_attentions,
-                output_hidden_states=output_hidden_states,
-                return_dict=return_dict,
-                # pyre-fixme[61]: `vision_tower_aux_feature_list` is undefined, or
-                #  not always defined.
-                vision_tower_aux_feature_list=vision_tower_aux_feature_list,
-                # pyre-fixme[61]: `vision_tower_aux_attention_masks_list` is
-                #  undefined, or not always defined.
-                vision_tower_aux_attention_masks_list=vision_tower_aux_attention_masks_list,
-                final_vision_feature_size=final_vision_feature_size,
-                # pyre-fixme[61]: `global_context_feature` is undefined, or not
-                #  always defined.
-                global_context_feature=global_context_feature,
-            )
-
-        # inference
-        else:
-            if hasattr(self, "vision_tower_aux_feature_list"):
-                # decoder outputs consists of (dec_features, layer_state, dec_hidden, dec_attn)
-                # pyre-fixme[29]: `CambrianLlamaModel` is not a function.
-                outputs = self.model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    position_ids=position_ids,
-                    past_key_values=past_key_values,
-                    inputs_embeds=inputs_embeds,
-                    use_cache=use_cache,
-                    output_attentions=output_attentions,
-                    output_hidden_states=output_hidden_states,
-                    return_dict=return_dict,
-                    vision_tower_aux_feature_list=(
-                        # pyre-fixme[61]: `vision_tower_aux_feature_list` is
-                        #  undefined, or not always defined.
-                        vision_tower_aux_feature_list
-                        if inputs_embeds is None
-                        # pyre-fixme[16]: `CambrianLlamaForCausalLM` has no
-                        #  attribute `vision_tower_aux_feature_list`.
-                        else self.vision_tower_aux_feature_list
-                    ),
-                    vision_tower_aux_attention_masks_list=(
-                        # pyre-fixme[61]: `vision_tower_aux_attention_masks_list` is
-                        #  undefined, or not always defined.
-                        vision_tower_aux_attention_masks_list
-                        if inputs_embeds is None
-                        # pyre-fixme[16]: `CambrianLlamaForCausalLM` has no
-                        #  attribute `vision_tower_aux_attention_masks_list`.
-                        else self.vision_tower_aux_attention_masks_list
-                    ),
-                    final_vision_feature_size=(
-                        final_vision_feature_size
-                        if inputs_embeds is None
-                        # pyre-fixme[16]: `CambrianLlamaForCausalLM` has no
-                        #  attribute `final_vision_feature_size`.
-                        else self.final_vision_feature_size
-                    ),
-                    global_context_feature=(
-                        # pyre-fixme[61]: `global_context_feature` is undefined, or
-                        #  not always defined.
-                        global_context_feature
-                        if inputs_embeds is None
-                        # pyre-fixme[16]: `CambrianLlamaForCausalLM` has no
-                        #  attribute `global_context_feature`.
-                        else self.global_context_feature
-                    ),
-                )
-            else:
-                # pyre-fixme[29]: `CambrianLlamaModel` is not a function.
-                outputs = self.model(
-                    input_ids=input_ids,
-                    attention_mask=attention_mask,
-                    position_ids=position_ids,
-                    past_key_values=past_key_values,
-                    inputs_embeds=inputs_embeds,
-                    use_cache=use_cache,
-                    output_attentions=output_attentions,
-                    output_hidden_states=output_hidden_states,
-                    return_dict=return_dict,
-                    # final_vision_feature_size=final_vision_feature_size,
-                )
-
-        # hidden_states = outputs[0] # outputs[0].shape: [bs, seq_len, 3072], e.g. bs = 1 and seq_len = 1297
-        # @tcm: attempt special cls token (assume last token is cls, for now)
+        outputs = self.model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+            # final_vision_feature_size=final_vision_feature_size,
+        )
         hidden_states = outputs[0]
-        assert hidden_states.shape[0] == len(cls_pos), f"Batch size of hidden states different from batch size of cls_pos"
-        cls_states = []
-        for i, pos in enumerate(cls_pos):
-            cls_states.append(hidden_states[i, pos, :])
-        cls_states = torch.stack(cls_states, dim=0)
-        assert cls_states.shape == (hidden_states.shape[0], hidden_states.shape[2]), f"Shape of cls_states different from shape of hidden_states"
-        if self.config.pretraining_tp > 1:
-            lm_head_slices = self.lm_head.weight.split(
-                self.vocab_size // self.config.pretraining_tp, dim=0
-            )
-            logits = [
-                F.linear(hidden_states, lm_head_slices[i])
-                for i in range(self.config.pretraining_tp)
-            ]
-            logits = torch.cat(logits, dim=-1)
+
+        # -------- LM logits (always needed) ---------------------------
+        if incremental:
+            # only the last position is new
+            token_hidden = hidden_states[:, -1:, :]
+            logits = self.lm_head(token_hidden).float()      # [bs,1,V]
+            cls_logits = None
         else:
-            logits = None
-            logits = self.lm_head(hidden_states) # logits.shape: [bs, seq_len, vocab_size], e.g. bs = 1, seq_len = 1297, vocab_size = 128256
-            logits = logits.float()
-            # @tcm: attempt special cls token
-            cls_logits = self.cls_head(cls_states) # [bs, 3]
-            cls_logits = cls_logits.float()
+            assert hidden_states.shape[0] == len(cls_pos), f"Batch size of hidden states different from batch size of cls_pos"
+            logits = self.lm_head(hidden_states).float()            # [bs,N,V]
+            # extract <cls> once
+            cls_states = hidden_states[torch.arange(hidden_states.size(0)), cls_pos]
+            assert cls_states.shape == (hidden_states.shape[0], hidden_states.shape[2]), f"Shape of cls_states different from shape of hidden_states"
+            cls_logits = self.cls_head(cls_states).float()   # [bs,3]
 
+        # -------- Losses (train mode) -------------------------------
         loss = None
-        # assert labels is not None, "@tcm: for eng_classes and labels, labels must not be None"
         if labels is not None:
-            txt_loss = None
-            # Shift so that tokens < n predict n
-            shift_logits = logits[..., :-1, :].contiguous()
-            shift_labels = labels[..., 1:].contiguous()
-            # Flatten the tokens
-            loss_fct = CrossEntropyLoss()
-            shift_logits = shift_logits.view(-1, self.config.vocab_size)
-            shift_labels = shift_labels.view(-1)
-            # Enable model parallelism
-            shift_labels = shift_labels.to(shift_logits.device)
-            txt_loss = loss_fct(shift_logits, shift_labels)
-
-            # @tcm: attempt special cls token
-            cls_loss_fct = CrossEntropyLoss()
-            assert cls_logits.shape == (eng_classes.shape[0], 3), f"wrong cls_logits shape, expected: {eng_classes.shape[0]}, 3, but got: {cls_logits.shape}"
-            cls_loss = cls_loss_fct(cls_logits, eng_classes)
-            if txt_loss is not None:    
-                loss = 0.5 * (txt_loss + cls_loss)
-            else:
-                loss = cls_loss
+            ce = F.cross_entropy(
+                logits[..., :-1, :].reshape(-1, self.config.vocab_size),
+                labels[..., 1:].reshape(-1)
+            )
+            cls_loss = F.cross_entropy(cls_logits, eng_classes)
+            loss = 0.5 * (ce + cls_loss)
 
         if not return_dict:
-            output = (logits, cls_logits, labels) + outputs[1:]
-            return (loss,) + output if loss is not None else output
+            return (loss, logits, cls_logits, labels) + outputs[1:]
 
         return CustomCausalLMOutputWithPast(
             loss=loss,
