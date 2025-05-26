@@ -39,9 +39,9 @@ CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=2 --master_port=29503 models/tr
   --tune_mm_mlp_adapter True \
   --tune_lm_head False \
   --tune_cls_head True \
-  --cls_only True \
+  --cls_only False \
   --tune_embed_tokens False \
-  --freeze_mm_mlp_adapter True \
+  --freeze_mm_mlp_adapter False \
   --freeze_backbone True \
   --gradient_checkpointing True \
   --mm_projector_type sva \

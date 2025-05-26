@@ -533,6 +533,7 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
                 _,
                 inputs_embeds,
                 _,
+                _,
                 vision_tower_aux_feature_list,
                 vision_tower_aux_attention_masks_list,
                 final_vision_feature_size,
