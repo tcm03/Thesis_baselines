@@ -1707,23 +1707,26 @@ class CambrianMetaForCausalLM(ABC):
 
             if num_new_tokens > 0:
                 input_embeddings = self.get_input_embeddings().weight.data
-                output_embeddings = self.get_output_embeddings().weight.data
+                output_embeddings = self.get_output_embeddings().weight.data if self.get_output_embeddings() is not None else None
 
                 input_embeddings_avg = input_embeddings[:-num_new_tokens].mean(
                     dim=0, keepdim=True
                 )
-                output_embeddings_avg = output_embeddings[:-num_new_tokens].mean(
-                    dim=0, keepdim=True
-                )
+                if output_embeddings is not None:
+                    output_embeddings_avg = output_embeddings[:-num_new_tokens].mean(
+                        dim=0, keepdim=True
+                    )
 
                 input_embeddings[-num_new_tokens:] = input_embeddings_avg
-                output_embeddings[-num_new_tokens:] = output_embeddings_avg
+                if output_embeddings is not None:
+                    output_embeddings[-num_new_tokens:] = output_embeddings_avg
 
             if model_args.tune_mm_mlp_adapter:
                 for p in self.get_input_embeddings().parameters():
                     p.requires_grad = True
-                for p in self.get_output_embeddings().parameters():
-                    p.requires_grad = False
+                if self.get_output_embeddings() is not None:
+                    for p in self.get_output_embeddings().parameters():
+                        p.requires_grad = False
 
             if model_args.pretrain_mm_mlp_adapter:
                 mm_projector_weights = torch.load(
@@ -1753,7 +1756,7 @@ class CambrianMetaForCausalLM(ABC):
         if num_new:                                           # should be 1
             with torch.no_grad():
                 inp = self.get_input_embeddings().weight      # [vocab+1, d]
-                out = self.get_output_embeddings().weight     # tied lm_head
+                # out = self.get_output_embeddings().weight     # tied lm_head
 
                 # ①  mean-initialisation  (fast convergence, popular in Unsloth & LLaVA)
                 mean_vec = inp[:-num_new].mean(dim=0, keepdim=True)

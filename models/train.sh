@@ -3,13 +3,14 @@ PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
 TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_engcaption_cls.json"
 EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_engcaption_cls.json"
 
-OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txtcls1"
-CKPT_NAME="longvu_llama_snapugc0_txtcls1"
-PREV_STAGE_CHECKPOINT="./checkpoints/longvu_llama_snapugc0_txtcls0/longvu_llama_snapugc0_txtcls0-epoch0-step379.pt"
+OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txtclsonly0"
+
+CKPT_NAME="longvu_llama_snapugc0_txtclsonly0"
+# PREV_STAGE_CHECKPOINT="./checkpoints/longvu_llama_snapugc0_txtcls0/longvu_llama_snapugc0_txtcls0-epoch0-step379.pt"
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
 
-CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
+CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=2 --master_port=29503 models/train.py \
   --output_dir $OUTPUT_DIR \
   --input_model_filename $MODEL_PATH \
   --output_model_filename $OUTPUT_DIR \
@@ -21,8 +22,8 @@ CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=4 --master_port=29503 models/tr
   --train_perf_log "train_perf_txtcls_2.json" \
   --eval_perf_log "eval_perf_txtcls_2.json" \
   --model_max_length 8192 \
-  --fp16 False \
-  --bf16 True \
+  --fp16 True \
+  --bf16 False \
   --tf32 False \
   --log_on_each_node False \
   --logging_dir /tmp/llava/test/ \
@@ -36,9 +37,10 @@ CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=4 --master_port=29503 models/tr
   --group_by_modality_length True \
   --lazy_preprocess True \
   --tune_mm_mlp_adapter True \
-  --tune_lm_head True \
+  --tune_lm_head False \
   --tune_cls_head True \
-  --tune_embed_tokens True \
+  --cls_only False \
+  --tune_embed_tokens False \
   --freeze_mm_mlp_adapter False \
   --freeze_backbone True \
   --gradient_checkpointing True \
@@ -50,15 +52,15 @@ CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=4 --master_port=29503 models/tr
   --highres True \
   --drop_threshold 0.8 \
   --eval_strategy "steps" \
-  --eval_steps 151 \
+  --eval_steps 20 \
   --save_strategy "steps" \
-  --save_steps 379 \
-  --logging_steps 10 \
+  --save_steps 20 \
+  --logging_steps 2 \
   --num_train_epochs 2 \
   --warmup_ratio 0.03 \
   --learning_rate 5e-6 \
   --weight_decay 0. \
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 1 \
-  --gradient_accumulation_steps 8 \
-  --resume_from_checkpoint $PREV_STAGE_CHECKPOINT
+  --gradient_accumulation_steps 2 \
+  # --resume_from_checkpoint $PREV_STAGE_CHECKPOINT
