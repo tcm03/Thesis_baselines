@@ -291,6 +291,7 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
         inputs_embeds: Optional[torch.FloatTensor] = None,
         labels: Optional[torch.LongTensor] = None,
         eng_classes: Optional[torch.LongTensor] = None,
+        cls_loss_weight: Optional[float] = None,
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
@@ -494,7 +495,8 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
             assert cls_logits.shape == (eng_classes.shape[0], 3), f"wrong cls_logits shape, expected: {eng_classes.shape[0]}, 3, but got: {cls_logits.shape}"
             cls_loss = cls_loss_fct(cls_logits, eng_classes)
             if txt_loss is not None:    
-                loss = 0.5 * (txt_loss + cls_loss)
+                assert cls_loss_weight is not None, "cls_loss_weight must not be None when tuning txt + cls"
+                loss = cls_loss_weight * cls_loss + (1. - cls_loss_weight) * txt_loss
             else:
                 loss = cls_loss
 

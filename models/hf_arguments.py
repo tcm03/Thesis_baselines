@@ -148,6 +148,7 @@ class CustomTrainingArguments(transformers.TrainingArguments):
     train_log: Optional[str] = field(default=None)
     train_perf_log: Optional[str] = field(default=None)
     eval_perf_log: Optional[str] = field(default=None)
+    cls_loss_weight: Optional[float] = field(default=0.5)
 
 
 # @dataclass

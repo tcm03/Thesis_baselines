@@ -2,7 +2,7 @@ import json
 import matplotlib.pyplot as plt
 
 # Load the training log data from the JSON file
-with open('checkpoints/longvu_llama_snapugc0_txtcls/train_log_txtcls_1.json', 'r') as f:
+with open('checkpoints/longvu_llama_snapugc0_txtclsonly/train_log_txtcls_2.json', 'r') as f:
     data = json.load(f)
 
 # Extract the steps, loss, gradient norm, and learning rate values

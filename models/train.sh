@@ -3,14 +3,14 @@ PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
 TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_engcaption_cls.json"
 EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_engcaption_cls.json"
 
-OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txtclsonly"
+OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txtcls_w0.5"
 
-CKPT_NAME="longvu_llama_snapugc0_txtclsonly"
+CKPT_NAME="longvu_llama_snapugc0_txtcls_w0.5"
 # PREV_STAGE_CHECKPOINT="./checkpoints/longvu_llama_snapugc0_txtcls0/longvu_llama_snapugc0_txtcls0-epoch0-step379.pt"
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
 
-CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
+CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 --master_port=29503 models/train.py \
   --output_dir $OUTPUT_DIR \
   --input_model_filename $MODEL_PATH \
   --output_model_filename $OUTPUT_DIR \
@@ -18,9 +18,9 @@ CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=4 --master_port=29503 models/tr
   --image_folders $PATH_TO_FOLDERS \
   --train_paths $TRAIN_PATHS \
   --eval_paths $EVAL_PATHS \
-  --train_log "train_log_txtcls_2.json" \
-  --train_perf_log "train_perf_txtcls_2.json" \
-  --eval_perf_log "eval_perf_txtcls_2.json" \
+  --train_log "train_log_txtcls_w0.5.json" \
+  --train_perf_log "train_perf_txtcls_w0.5.json" \
+  --eval_perf_log "eval_perf_txtcls_w0.5.json" \
   --model_max_length 8192 \
   --fp16 False \
   --bf16 True \
@@ -39,7 +39,7 @@ CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=4 --master_port=29503 models/tr
   --tune_mm_mlp_adapter True \
   --tune_lm_head False \
   --tune_cls_head True \
-  --cls_only True \
+  --cls_only False \
   --tune_embed_tokens True \
   --freeze_mm_mlp_adapter False \
   --freeze_backbone True \
@@ -60,7 +60,8 @@ CUDA_LAUNCH_BLOCKING=1 torchrun --nproc_per_node=4 --master_port=29503 models/tr
   --warmup_ratio 0.03 \
   --learning_rate 5e-6 \
   --weight_decay 0. \
+  --cls_loss_weight 0.5 \
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 1 \
-  --gradient_accumulation_steps 8 \
+  --gradient_accumulation_steps 16 \
   # --resume_from_checkpoint $PREV_STAGE_CHECKPOINT

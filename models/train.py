@@ -51,7 +51,7 @@ if torch.cuda.is_available():
 
 ddp = int(os.environ.get("RANK", -1)) != -1
 
-def forward_step(model, batch, device, eval_mode=False, cls_only=False):
+def forward_step(model, batch, device, eval_mode=False, cls_only=False, cls_loss_weight=None):
     input_ids = batch["input_ids"].to(device)
     labels = batch["labels"].to(device)
     eng_classes = batch["eng_classes"].to(device)
@@ -96,6 +96,7 @@ def forward_step(model, batch, device, eval_mode=False, cls_only=False):
                 position_ids=position_ids,
                 labels=labels,
                 eng_classes=eng_classes,
+                cls_loss_weight=cls_loss_weight,
                 images=images,
                 image_aux_attention_masks_list=image_aux_attention_masks_list,
                 image_sizes=image_sizes,
@@ -521,7 +522,7 @@ def train():
             ddp_context = model.no_sync() if (ddp and not is_last_micro) else nullcontext()
             train_labels = batch["eng_classes"].to(device)
             with ddp_context:
-                outputs = forward_step(model, batch, device, cls_only=model_args.cls_only)
+                outputs = forward_step(model, batch, device, cls_only=model_args.cls_only, cls_loss_weight=training_args.cls_loss_weight)
                 cur_preds = torch.argmax(outputs.cls_logits, dim=-1)
                 train_device_preds.append(cur_preds)
                 train_device_gold_labels.append(train_labels)
