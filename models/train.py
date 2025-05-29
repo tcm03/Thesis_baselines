@@ -12,7 +12,7 @@ import os
 import json
 from contextlib import nullcontext
 import argparse
-from typing import List, Dict
+from typing import List, Dict, Any
 from safetensors.torch import save_file
 from torch.utils.data import Dataset, DataLoader
 from transformers import BaseImageProcessor
@@ -21,6 +21,7 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 # import annotation.utils (which imports decord) after torch to avoid bug
 import torch.multiprocessing as mp
 from resource_logging import measure_resource_usage, MeasureResourceUsage
+import evaluate
 
 from models.hf_arguments import *
 from backbones.language_models.cambrian_llama import CambrianLlamaForCausalLM, CambrianLlamaForSequenceClassification
@@ -32,6 +33,11 @@ from opti import get_optimizer
 from train_log import *
 from models.utils import count_parameters, log_rank0, seed_worker, gen_hex
 from models.train_ckpt import *
+from models.eval import *
+
+from backbones.mm_datautils import (
+    KeywordsStoppingCriteria,
+)
 
 from collections import defaultdict
 import logging
@@ -51,7 +57,22 @@ if torch.cuda.is_available():
 
 ddp = int(os.environ.get("RANK", -1)) != -1
 
-def forward_step(model, batch, device, eval_mode=False, cls_only=False, cls_loss_weight=None):
+def forward_step(
+    model, 
+    batch, 
+    device,
+    model_args,  
+    tokenizer,
+    eval_mode=False, 
+    cls_only=False,
+    cls_loss_weight=None,
+    gen_config_dict: Dict[str, Any]=None
+):
+    if gen_config_dict is not None and cls_only:
+        raise ValueError("gen_config_dict for text generation is not supported for cls_only")
+    # if gen_config_dict is not None and not eval_mode:
+    #     raise ValueError("gen_config_dict for text generation is only supported for eval_mode")
+    
     input_ids = batch["input_ids"].to(device)
     labels = batch["labels"].to(device)
     eng_classes = batch["eng_classes"].to(device)
@@ -101,82 +122,37 @@ def forward_step(model, batch, device, eval_mode=False, cls_only=False, cls_loss
                 image_aux_attention_masks_list=image_aux_attention_masks_list,
                 image_sizes=image_sizes,
             )
+    if not cls_only and gen_config_dict is not None:
+        # @tcm: add gen_config_dict to model.generate()
+        conv = conversation_lib.conv_templates[model_args.version].copy()
+        stop_str = conv.sep if conv.sep_style != conversation_lib.SeparatorStyle.TWO else conv.sep2
+        keywords = [stop_str]
+        stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
+        raw = model.module if hasattr(model, "module") else model
+        with torch.inference_mode():
+            was_training = raw.training
+            if was_training:
+                raw.eval() # disable dropout and checkpointing (use_cache can be True)
+            output_ids = raw.generate(
+                input_ids,
+                images=images,
+                image_sizes=image_sizes,
+                do_sample=gen_config_dict.get("do_sample", False),
+                temperature=gen_config_dict.get("temperature", 1.),
+                max_new_tokens=gen_config_dict.get("max_new_tokens", 128),
+                num_beams=gen_config_dict.get("num_beams", 3),
+                use_cache=gen_config_dict.get("use_cache", True),
+                stopping_criteria=[stopping_criteria],
+            )
+            if was_training:
+                raw.train() # restore training mode
+        pred = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+        # eliminate starting "assistant" prefix if present
+        if pred.startswith("assistant"):
+            pred = pred[len("assistant"):].strip()
+        log_rank0(f"In forward_step(): pred: {pred}")
+        outputs["preds"] = [pred]
     return outputs
-
-def evaluate_perf(
-    device_preds: List[torch.Tensor],
-    device_gold_labels: List[torch.Tensor],
-    device_loss: float = None,
-    device_samples: int = None,
-    prefix: str = "Train",
-    **kwargs
-):
-    ddp_rank = int(os.environ["RANK"])
-    ddp_local_rank = int(os.environ["LOCAL_RANK"])
-    ddp_world_size = int(os.environ["WORLD_SIZE"])
-    device = f"cuda:{ddp_local_rank}"
-    master_process = ddp_rank == 0 # main process for logging, checkpointing, etc.
-
-    agg_loss = None
-    if device_loss is not None and device_samples is not None:
-        total_loss_tensor = torch.tensor(device_loss, device=device)
-        total_samples_tensor = torch.tensor(device_samples, device=device)
-        if ddp:
-            # aggregate losses across devices
-            dist.all_reduce(total_loss_tensor, op=dist.ReduceOp.SUM)
-            dist.all_reduce(total_samples_tensor, op=dist.ReduceOp.SUM)
-        agg_loss = total_loss_tensor.item() / total_samples_tensor.item()
-
-    preds = torch.cat(device_preds, dim=0)
-    gold_labels = torch.cat(device_gold_labels, dim=0)
-    # Gather predictions from all processes
-    if ddp:
-        all_preds = [torch.zeros_like(preds) for _ in range(ddp_world_size)]
-        all_gold_labels = [torch.zeros_like(gold_labels) for _ in range(ddp_world_size)]
-        dist.all_gather(all_preds, preds)
-        dist.all_gather(all_gold_labels, gold_labels)
-        preds = torch.cat(all_preds, dim=0)
-        gold_labels = torch.cat(all_gold_labels, dim=0)
-    
-    preds_np = preds.cpu().numpy()
-    gold_labels_np = gold_labels.cpu().numpy()
-    cur_perf = None
-    if master_process:
-        accuracy = accuracy_score(gold_labels_np, preds_np)
-        prec_w, recall_w, f1_w, _ = precision_recall_fscore_support(gold_labels_np, preds_np, average='weighted')
-        prec_micro, recall_micro, f1_micro, _ = precision_recall_fscore_support(gold_labels_np, preds_np, average='micro')
-        prec_macro, recall_macro, f1_macro, _ = precision_recall_fscore_support(gold_labels_np, preds_np, average='macro')
-
-        cur_perf = PerfMetrics(
-            epoch=kwargs.get("epoch", 9999),
-            step=kwargs.get("step", 9999),
-            accuracy=accuracy,
-            precision={
-                "weighted": prec_w,
-                "micro": prec_micro,
-                "macro": prec_macro
-            },
-            recall={
-                "weighted": recall_w,
-                "micro": recall_micro,
-                "macro": recall_macro
-            },
-            f1={
-                "weighted": f1_w,
-                "micro": f1_micro,
-                "macro": f1_macro
-            },
-            loss=agg_loss
-        )
-
-        if agg_loss is not None:
-            logging.info(f"{prefix} loss: {agg_loss:.10f}")
-        logging.info(f"{prefix} accuracy: {accuracy:.10f}")
-        logging.info(f"{prefix} weighted precision: {prec_w:.10f}, recall: {recall_w:.10f}, f1: {f1_w:.10f}")
-        logging.info(f"{prefix} micro precision: {prec_micro:.10f}, recall: {recall_micro:.10f}, f1: {f1_micro:.10f}")
-        logging.info(f"{prefix} macro precision: {prec_macro:.10f}, recall: {recall_macro:.10f}, f1: {f1_macro:.10f}")
-
-    return cur_perf
 
 def train():
     
@@ -497,6 +473,10 @@ def train():
     train_logs: List[TrainProgressLog] = []
     train_perf: List[PerfMetrics] = []
     eval_perf: List[PerfMetrics] = []
+    bleu = evaluate.load("bleu")
+    rouge = evaluate.load("rouge")
+    meteor = evaluate.load("meteor")
+    bertscore = evaluate.load("bertscore")
 
     log_rank0("Starting training")
     for epoch in range(from_epoch, num_epochs):
@@ -508,6 +488,7 @@ def train():
         model.train()
         train_loss_accum = torch.zeros(1, device=device)
         train_device_preds, train_device_gold_labels = [], []
+        train_device_text_preds, train_device_text_references = [], []
         for batch_idx, batch in enumerate(train_dataloader):
             # if epoch == from_epoch and batch_idx == from_batch:
             #     log_rank0(f"[DBG] first batch this run: gen={gen_hex(generator)}")
@@ -522,10 +503,26 @@ def train():
             ddp_context = model.no_sync() if (ddp and not is_last_micro) else nullcontext()
             train_labels = batch["eng_classes"].to(device)
             with ddp_context:
-                outputs = forward_step(model, batch, device, cls_only=model_args.cls_only, cls_loss_weight=training_args.cls_loss_weight)
+                outputs = forward_step(
+                    model, 
+                    batch, 
+                    device, 
+                    model_args, 
+                    tokenizer, 
+                    cls_only=model_args.cls_only,
+                    cls_loss_weight=training_args.cls_loss_weight,
+                    gen_config_dict={
+                        "do_sample": False,
+                        "max_new_tokens": 256,
+                        "num_beams": 3,
+                        "use_cache": True,
+                    }
+                )
                 cur_preds = torch.argmax(outputs.cls_logits, dim=-1)
                 train_device_preds.append(cur_preds)
                 train_device_gold_labels.append(train_labels)
+                train_device_text_preds.extend(outputs["preds"])
+                train_device_text_references.extend(batch["responses"])
                 loss = outputs.loss
                 loss = loss / gradient_accumulation_steps
                 train_loss_accum += loss.detach()
@@ -581,8 +578,14 @@ def train():
                         device_preds=train_device_preds,
                         device_gold_labels=train_device_gold_labels,
                         prefix="Train",
+                        predictions=train_device_text_preds,
+                        references=train_device_text_references,
                         epoch=epoch + (batch_idx+1) / len(train_dataloader),
-                        step=global_steps
+                        step=global_steps,
+                        bleu=bleu,
+                        rouge=rouge,
+                        meteor=meteor,
+                        bertscore=bertscore
                     )
                     if train_perf_log is not None:
                         # only on master process
@@ -598,13 +601,29 @@ def train():
                     eval_device_loss = 0.
                     eval_device_samples = 0
                     eval_device_preds, eval_device_gold_labels = [], []
+                    eval_device_text_preds, eval_device_text_references = [], []
                     for eval_batch_idx, eval_batch in enumerate(eval_dataloader):
                         log_rank0(f'After epoch {epoch + 1}, eval batch {eval_batch_idx+1}/{len(eval_dataloader)}')
 
                         eval_labels = eval_batch["eng_classes"].to(device)
 
                         with torch.no_grad():
-                            outputs = forward_step(model, eval_batch, device, eval_mode=True, cls_only=model_args.cls_only)
+                            outputs = forward_step(
+                                model, 
+                                eval_batch, 
+                                device, 
+                                model_args, 
+                                tokenizer, 
+                                eval_mode=True, 
+                                cls_only=model_args.cls_only,
+                                cls_loss_weight=training_args.cls_loss_weight,
+                                gen_config_dict={
+                                    "do_sample": False,
+                                    "max_new_tokens": 256,
+                                    "num_beams": 3,
+                                    "use_cache": True,
+                                }
+                            )
                             eval_logits = outputs.cls_logits
                             cur_preds = torch.argmax(eval_logits, dim=-1)
                             eval_device_preds.append(cur_preds)
@@ -613,15 +632,32 @@ def train():
                             eval_loss = loss_fnc(eval_logits, eval_labels)
                             eval_device_loss += eval_loss.item() * eval_labels.shape[0]
                             eval_device_samples += eval_labels.shape[0]
+                            eval_device_text_preds.extend(outputs["preds"])
+                            eval_device_text_references.extend(eval_batch["responses"])
                     
+                    eval_gathered_preds = [None for _ in range(ddp_world_size)] if master_process else None
+                    dist.gather_object(eval_device_text_preds, eval_gathered_preds, dst=0)
+                    eval_gathered_references = [None for _ in range(ddp_world_size)] if master_process else None
+                    dist.gather_object(eval_device_text_references, eval_gathered_references, dst=0)
+                    if master_process:
+                        # flatten
+                        eval_gathered_preds = [pred for rank_preds in eval_gathered_preds for pred in rank_preds]
+                        eval_gathered_references = [ref for rank_refs in eval_gathered_references for ref in rank_refs]
+
                     eval_perf_log = evaluate_perf(
                         device_loss=eval_device_loss,
                         device_samples=eval_device_samples,
                         device_preds=eval_device_preds,
                         device_gold_labels=eval_device_gold_labels,
+                        predictions=eval_gathered_preds,
+                        references=eval_gathered_references,
                         prefix="Eval",
                         epoch=epoch + (batch_idx+1) / len(train_dataloader),
-                        step=global_steps
+                        step=global_steps,
+                        bleu=bleu,
+                        rouge=rouge,
+                        meteor=meteor,
+                        bertscore=bertscore
                     )
                     if eval_perf_log is not None:
                         # only on master process

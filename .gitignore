@@ -7,3 +7,5 @@ backbones/multimodal_projector/__pycache__/
 baselines/__pycache__/
 models/__pycache__/
 images/
+pycocoevalcap/
+pycocotools/

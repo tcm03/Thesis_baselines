@@ -3,14 +3,14 @@ PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
 TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_engcaption_cls.json"
 EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_engcaption_cls.json"
 
-OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txtcls_w0.5"
+OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txtcls_txteval"
 
-CKPT_NAME="longvu_llama_snapugc0_txtcls_w0.5"
+CKPT_NAME="longvu_llama_snapugc0_txtcls_txteval"
 # PREV_STAGE_CHECKPOINT="./checkpoints/longvu_llama_snapugc0_txtcls0/longvu_llama_snapugc0_txtcls0-epoch0-step379.pt"
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
 
-CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 --master_port=29503 models/train.py \
+torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
   --output_dir $OUTPUT_DIR \
   --input_model_filename $MODEL_PATH \
   --output_model_filename $OUTPUT_DIR \
@@ -18,9 +18,9 @@ CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 --master_port=29503 models/
   --image_folders $PATH_TO_FOLDERS \
   --train_paths $TRAIN_PATHS \
   --eval_paths $EVAL_PATHS \
-  --train_log "train_log_txtcls_w0.5.json" \
-  --train_perf_log "train_perf_txtcls_w0.5.json" \
-  --eval_perf_log "eval_perf_txtcls_w0.5.json" \
+  --train_log "train_log_txtcls_txteval.json" \
+  --train_perf_log "train_perf_txtcls_txteval.json" \
+  --eval_perf_log "eval_perf_txtcls_txteval.json" \
   --model_max_length 8192 \
   --fp16 False \
   --bf16 True \
@@ -37,10 +37,10 @@ CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 --master_port=29503 models/
   --group_by_modality_length True \
   --lazy_preprocess True \
   --tune_mm_mlp_adapter True \
-  --tune_lm_head False \
+  --tune_lm_head True \
   --tune_cls_head True \
   --cls_only False \
-  --tune_embed_tokens True \
+  --tune_embed_tokens False \
   --freeze_mm_mlp_adapter False \
   --freeze_backbone True \
   --gradient_checkpointing True \
@@ -63,5 +63,5 @@ CUDA_VISIBLE_DEVICES=0,1 torchrun --nproc_per_node=2 --master_port=29503 models/
   --cls_loss_weight 0.5 \
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 1 \
-  --gradient_accumulation_steps 16 \
+  --gradient_accumulation_steps 8 \
   # --resume_from_checkpoint $PREV_STAGE_CHECKPOINT

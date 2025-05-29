@@ -293,6 +293,7 @@ class LazySupervisedDataset(Dataset):
         data_dict["image_size"] = image_size  # pyre-fixme
         # @tcm: attempt special cls token
         data_dict["eng_class"] = eng_class
+        data_dict["response"] = dat["conversations"][1]["value"] # assistant response
         return data_dict
         
 
@@ -486,6 +487,7 @@ class EvalSupervisedDataset(LazySupervisedDataset):
         data_dict["image_size"] = image_size  # pyre-fixme
         # @tcm: attempt special cls token
         data_dict["eng_class"] = eng_class
+        data_dict["response"] = dat["conversations"][1]["value"] # assistant response
         return data_dict
 
 
@@ -505,6 +507,9 @@ class DataCollatorForSupervisedDataset(object):
         image_position = self.image_position
         input_ids, labels = tuple(
             [instance[key] for instance in instances] for key in ("input_ids", "labels")
+        )
+        responses = tuple(
+            [instance["response"] for instance in instances]
         )
         max_length = self.tokenizer.model_max_length
 
@@ -610,6 +615,7 @@ class DataCollatorForSupervisedDataset(object):
             input_ids=new_input_ids,
             labels=new_labels,
             eng_classes=eng_classes,
+            responses=responses,
             attention_mask=new_attention_mask,
             position_ids=new_position_ids,
             image_aux_attention_masks_list=im_aux_attention_masks_list,
