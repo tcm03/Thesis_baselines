@@ -5,6 +5,7 @@ from typing import List
 from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 from models.train_log import PerfMetrics
 import logging
+import numpy as np
 
 def evaluate_perf(
     device_preds: List[torch.Tensor],
@@ -94,6 +95,10 @@ def evaluate_perf(
         if "bertscore" in kwargs:
             bertscore = kwargs["bertscore"]
             bertscore_score = bertscore.compute(predictions=predictions, references=references, lang="en")
+            # aggregate mean precision, recall and f1 of bertscore
+            bertscore_score["precision"] = float(np.mean(bertscore_score["precision"]))
+            bertscore_score["recall"] = float(np.mean(bertscore_score["recall"]))
+            bertscore_score["f1"] = float(np.mean(bertscore_score["f1"]))
             cur_perf.bertscore = bertscore_score
 
         if agg_loss is not None:

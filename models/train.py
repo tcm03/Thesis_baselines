@@ -69,8 +69,8 @@ def forward_step(
 ):
     if gen_config_dict is not None and cls_only:
         raise ValueError("gen_config_dict for text generation is not supported for cls_only")
-    if gen_config_dict is not None and not eval_mode:
-        raise ValueError("gen_config_dict for text generation is only supported for eval_mode")
+    # if gen_config_dict is not None and not eval_mode:
+    #     raise ValueError("gen_config_dict for text generation is only supported for eval_mode")
     
     input_ids = batch["input_ids"].to(device)
     labels = batch["labels"].to(device)
@@ -97,31 +97,6 @@ def forward_step(
             image_aux_attention_masks_list=image_aux_attention_masks_list,
             image_sizes=image_sizes,
         )
-        if gen_config_dict is not None:
-            # @tcm: add gen_config_dict to model.generate()
-            conv = conversation_lib.conv_templates[model_args.version].copy()
-            stop_str = conv.sep if conv.sep_style != conversation_lib.SeparatorStyle.TWO else conv.sep2
-            keywords = [stop_str]
-            stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
-            raw = model.module if hasattr(model, "module") else model
-            with torch.inference_mode():
-                output_ids = raw.generate(
-                    input_ids,
-                    images=images,
-                    image_sizes=image_sizes,
-                    do_sample=gen_config_dict.get("do_sample", False),
-                    temperature=gen_config_dict.get("temperature", 1.),
-                    max_new_tokens=gen_config_dict.get("max_new_tokens", 128),
-                    num_beams=gen_config_dict.get("num_beams", 3),
-                    use_cache=gen_config_dict.get("use_cache", True),
-                    stopping_criteria=[stopping_criteria],
-                )
-            pred = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
-            # eliminate starting "assistant" prefix if present
-            if pred.startswith("assistant"):
-                pred = pred[len("assistant"):].strip()
-            log_rank0(f"In forward_step(): pred: {pred}")
-            outputs["preds"] = [pred]
     else:
         if cls_only:
             outputs = model(
@@ -145,6 +120,36 @@ def forward_step(
                 image_aux_attention_masks_list=image_aux_attention_masks_list,
                 image_sizes=image_sizes,
             )
+    if not cls_only and gen_config_dict is not None:
+        # @tcm: add gen_config_dict to model.generate()
+        conv = conversation_lib.conv_templates[model_args.version].copy()
+        stop_str = conv.sep if conv.sep_style != conversation_lib.SeparatorStyle.TWO else conv.sep2
+        keywords = [stop_str]
+        stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
+        raw = model.module if hasattr(model, "module") else model
+        with torch.inference_mode():
+            was_training = raw.training
+            if was_training:
+                raw.eval() # disable dropout and checkpointing (use_cache can be True)
+            output_ids = raw.generate(
+                input_ids,
+                images=images,
+                image_sizes=image_sizes,
+                do_sample=gen_config_dict.get("do_sample", False),
+                temperature=gen_config_dict.get("temperature", 1.),
+                max_new_tokens=gen_config_dict.get("max_new_tokens", 128),
+                num_beams=gen_config_dict.get("num_beams", 3),
+                use_cache=gen_config_dict.get("use_cache", True),
+                stopping_criteria=[stopping_criteria],
+            )
+            if was_training:
+                raw.train() # restore training mode
+        pred = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+        # eliminate starting "assistant" prefix if present
+        if pred.startswith("assistant"):
+            pred = pred[len("assistant"):].strip()
+        log_rank0(f"In forward_step(): pred: {pred}")
+        outputs["preds"] = [pred]
     return outputs
 
 def train():
@@ -481,6 +486,7 @@ def train():
         model.train()
         train_loss_accum = torch.zeros(1, device=device)
         train_device_preds, train_device_gold_labels = [], []
+        train_device_text_preds, train_device_text_references = [], []
         for batch_idx, batch in enumerate(train_dataloader):
             # if epoch == from_epoch and batch_idx == from_batch:
             #     log_rank0(f"[DBG] first batch this run: gen={gen_hex(generator)}")
@@ -495,10 +501,25 @@ def train():
             ddp_context = model.no_sync() if (ddp and not is_last_micro) else nullcontext()
             train_labels = batch["eng_classes"].to(device)
             with ddp_context:
-                outputs = forward_step(model, batch, device, model_args, tokenizer, cls_only=model_args.cls_only)
+                outputs = forward_step(
+                    model, 
+                    batch, 
+                    device, 
+                    model_args, 
+                    tokenizer, 
+                    cls_only=model_args.cls_only,
+                    gen_config_dict={
+                        "do_sample": False,
+                        "max_new_tokens": 256,
+                        "num_beams": 3,
+                        "use_cache": True,
+                    }
+                )
                 cur_preds = torch.argmax(outputs.cls_logits, dim=-1)
                 train_device_preds.append(cur_preds)
                 train_device_gold_labels.append(train_labels)
+                train_device_text_preds.extend(outputs["preds"])
+                train_device_text_references.extend(batch["responses"])
                 loss = outputs.loss
                 loss = loss / gradient_accumulation_steps
                 train_loss_accum += loss.detach()
@@ -554,8 +575,14 @@ def train():
                         device_preds=train_device_preds,
                         device_gold_labels=train_device_gold_labels,
                         prefix="Train",
+                        predictions=train_device_text_preds,
+                        references=train_device_text_references,
                         epoch=epoch + (batch_idx+1) / len(train_dataloader),
-                        step=global_steps
+                        step=global_steps,
+                        bleu=bleu,
+                        rouge=rouge,
+                        meteor=meteor,
+                        bertscore=bertscore
                     )
                     if train_perf_log is not None:
                         # only on master process
@@ -588,7 +615,7 @@ def train():
                                 cls_only=model_args.cls_only,
                                 gen_config_dict={
                                     "do_sample": False,
-                                    "max_new_tokens": 128,
+                                    "max_new_tokens": 256,
                                     "num_beams": 3,
                                     "use_cache": True,
                                 }
