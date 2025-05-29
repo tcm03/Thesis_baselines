@@ -115,6 +115,9 @@ def forward_step(
                     stopping_criteria=[stopping_criteria],
                 )
             pred = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+            # eliminate starting "assistant" prefix if present
+            if pred.startswith("assistant"):
+                pred = pred[len("assistant"):].strip()
             log_rank0(f"In forward_step(): pred: {pred}")
             outputs["pred"] = pred
     else:

@@ -541,10 +541,12 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
         return_dict: Optional[bool] = None,
         cache_position=None,
     ):
+        # log_rank0(f"In CambrianLlamaForCausalLM.forward(): before prepare_inputs_labels_for_multimodal(): input_ids: {input_ids}")
+        # log_rank0(f"In CambrianLlamaForCausalLM.forward(): before prepare_inputs_labels_for_multimodal(): past_key_values: {past_key_values}")
+        # log_rank0(f"In CambrianLlamaForCausalLM.forward(): before prepare_inputs_labels_for_multimodal(): inputs_embeds: {inputs_embeds}")
         # -------- Detect incremental decode ---------------------------
-        incremental = past_key_values is not None and (
-            input_ids is None or input_ids.size(-1) == 0
-        )
+        incremental = past_key_values is not None
+        # log_rank0(f"In CambrianLlamaForCausalLM.forward(): incremental: {incremental}")
 
         # -------- First call (prefill) -------------------------------
         if not incremental:
@@ -572,7 +574,7 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
                 image_aux_attention_masks_list,
                 image_sizes,
             )
-            assert cls_pos is not None, "Batch CLS token positions not found" => still die in this assertion !!!
+            assert cls_pos is not None, "Batch CLS token positions not found" # => still die in this assertion !!!
         # NOTE: cls_pos undefined in incremental mode – that’s fine.
 
         output_attentions = (
@@ -625,6 +627,7 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
                 logits[..., :-1, :].reshape(-1, self.config.vocab_size),
                 labels[..., 1:].reshape(-1)
             )
+            assert cls_logits is not None and eng_classes is not None, "cls_logits and eng_classes must not be None for classification loss signal"
             cls_loss = F.cross_entropy(cls_logits, eng_classes)
             loss = 0.5 * (ce + cls_loss)
 
@@ -653,7 +656,7 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
         attention_mask = kwargs.pop("attention_mask", None)
         if "inputs_embeds" in kwargs:
             raise NotImplementedError("`inputs_embeds` is not supported")
-
+        log_rank0(f"In CambrianLlamaForCausalLM.generate(): before prepare_inputs_labels_for_multimodal(): inputs.shape: {inputs.shape}")
         if images is not None:
             (
                 inputs,
@@ -692,7 +695,7 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
             self.global_context_feature = global_context_feature
         else:
             inputs_embeds = self.get_model().embed_tokens(inputs)
-
+        log_rank0(f"In CambrianLlamaForCausalLM.generate(): inputs_embeds.shape: {inputs_embeds.shape}")
         # pyre-fixme[16]: `LlamaForCausalLM` has no attribute `generate`.
         return super().generate(
             position_ids=position_ids,
@@ -706,14 +709,14 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
     ):
         images = kwargs.pop("images", None)
         image_sizes = kwargs.pop("image_sizes", None)
-        log_rank0(f"In CambrianLlamaForCausalLM.prepare_inputs_for_generation(): before super(): input_ids: {input_ids}")
         inputs = super().prepare_inputs_for_generation(
             input_ids,
             past_key_values=past_key_values,
             inputs_embeds=inputs_embeds,
             **kwargs,
         )
-        log_rank0(f"In CambrianLlamaForCausalLM.prepare_inputs_for_generation(): input_ids: {input_ids}")
+        # log_rank0(f"In CambrianLlamaForCausalLM.prepare_inputs_for_generation(): input_ids: {input_ids}")
+        # log_rank0(f"In CambrianLlamaForCausalLM.prepare_inputs_for_generation(): inputs_embeds.shape: {inputs_embeds.shape}")
         if images is not None:
             inputs["images"] = images
         if image_sizes is not None:
