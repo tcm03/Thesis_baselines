@@ -36,7 +36,11 @@ class PerfMetrics:
         precision: Dict[str, float], 
         recall: Dict[str, float], 
         f1: Dict[str, float],
-        loss: float = None
+        loss: float = None,
+        bleu: Dict[str, Any] = None,
+        rouge: Dict[str, Any] = None,
+        meteor: Dict[str, Any] = None,
+        bertscore: Dict[str, Any] = None
     ):
         self.epoch = epoch
         self.step = step
@@ -45,6 +49,10 @@ class PerfMetrics:
         self.recall = recall
         self.f1 = f1
         self.loss = loss
+        self.bleu = bleu
+        self.rouge = rouge
+        self.meteor = meteor
+        self.bertscore = bertscore
 
     def to_dict(self) -> Dict[str, Any]:
         return_dict = {
@@ -53,8 +61,33 @@ class PerfMetrics:
             "accuracy": self.accuracy,
             "precision": self.precision,
             "recall": self.recall,
-            "f1": self.f1
+            "f1": self.f1,
+            "bleu": self.bleu,
+            "rouge": self.rouge,
+            "meteor": self.meteor,
+            "bertscore": self.bertscore
         }
         if self.loss is not None:
             return_dict["loss"] = self.loss
         return return_dict
+
+# class TextSimMetrics:
+#     def __init__(
+#         self,
+#         bleu: Dict[str, Any],
+#         rouge: Dict[str, Any],
+#         meteor: Dict[str, Any],
+#         bertscore: Dict[str, Any]
+#     ):
+#         self.bleu = bleu
+#         self.rouge = rouge
+#         self.meteor = meteor
+#         self.bertscore = bertscore
+
+#     def to_dict(self) -> Dict[str, Any]:
+#         return {
+#             "bleu": self.bleu,
+#             "rouge": self.rouge,
+#             "meteor": self.meteor,
+#             "bertscore": self.bertscore
+#         }
