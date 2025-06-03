@@ -1,8 +1,12 @@
 import json
+import os
 import matplotlib.pyplot as plt
 
+output_dir = 'images/txtcls_w0.7'
+os.makedirs(output_dir, exist_ok=True)
+
 # Load the training log data from the JSON file
-with open('checkpoints/longvu_llama_snapugc0_txtclsonly/train_log_txtcls_2.json', 'r') as f:
+with open('checkpoints/longvu_llama_snapugc0_txtcls_w0.7/train_log_txtcls_w0.7.json', 'r') as f:
     data = json.load(f)
 
 # Extract the steps, loss, gradient norm, and learning rate values
@@ -19,7 +23,7 @@ plt.xlabel("Step")
 plt.ylabel("Loss")
 plt.grid(True)
 plt.tight_layout()
-plt.savefig("loss_vs_step.png", dpi=300)
+plt.savefig(os.path.join(output_dir, "loss_vs_step.png"), dpi=300)
 plt.close()
 
 # Plot Gradient Norm vs Step
@@ -30,7 +34,7 @@ plt.xlabel("Step")
 plt.ylabel("Gradient Norm")
 plt.grid(True)
 plt.tight_layout()
-plt.savefig("grad_norm_vs_step.png", dpi=300)
+plt.savefig(os.path.join(output_dir, "grad_norm_vs_step.png"), dpi=300)
 plt.close()
 
 # Plot Learning Rate vs Step
@@ -41,5 +45,5 @@ plt.xlabel("Step")
 plt.ylabel("Learning Rate")
 plt.grid(True)
 plt.tight_layout()
-plt.savefig("learning_rate_vs_step.png", dpi=300)
+plt.savefig(os.path.join(output_dir, "learning_rate_vs_step.png"), dpi=300)
 plt.close()

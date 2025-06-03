@@ -3,10 +3,10 @@ PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
 TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_engcaption_cls.json"
 EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_engcaption_cls.json"
 
-OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txtcls_txteval"
+OUTPUT_DIR="./checkpoints/test"
 
-CKPT_NAME="longvu_llama_snapugc0_txtcls_txteval"
-# PREV_STAGE_CHECKPOINT="./checkpoints/longvu_llama_snapugc0_txtcls0/longvu_llama_snapugc0_txtcls0-epoch0-step379.pt"
+CKPT_NAME="test"
+PREV_STAGE_CHECKPOINT="./checkpoints/longvu_llama_snapugc0_txtcls_txteval/longvu_llama_snapugc0_txtcls_txteval-epoch0-step379.pt"
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
 
@@ -21,6 +21,7 @@ torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
   --train_log "train_log_txtcls_txteval.json" \
   --train_perf_log "train_perf_txtcls_txteval.json" \
   --eval_perf_log "eval_perf_txtcls_txteval.json" \
+  --eval_log "eval_log_txtcls_txteval.json" \
   --model_max_length 8192 \
   --fp16 False \
   --bf16 True \

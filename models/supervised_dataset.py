@@ -294,6 +294,7 @@ class LazySupervisedDataset(Dataset):
         # @tcm: attempt special cls token
         data_dict["eng_class"] = eng_class
         data_dict["response"] = dat["conversations"][1]["value"] # assistant response
+        data_dict["video_path"] = dat["video"]
         return data_dict
         
 
@@ -488,6 +489,7 @@ class EvalSupervisedDataset(LazySupervisedDataset):
         # @tcm: attempt special cls token
         data_dict["eng_class"] = eng_class
         data_dict["response"] = dat["conversations"][1]["value"] # assistant response
+        data_dict["video_path"] = dat["video"]
         return data_dict
 
 
@@ -510,6 +512,9 @@ class DataCollatorForSupervisedDataset(object):
         )
         responses = tuple(
             [instance["response"] for instance in instances]
+        )
+        video_paths = tuple(
+            [instance["video_path"] for instance in instances]
         )
         max_length = self.tokenizer.model_max_length
 
@@ -616,6 +621,7 @@ class DataCollatorForSupervisedDataset(object):
             labels=new_labels,
             eng_classes=eng_classes,
             responses=responses,
+            video_paths=video_paths,
             attention_mask=new_attention_mask,
             position_ids=new_position_ids,
             image_aux_attention_masks_list=im_aux_attention_masks_list,

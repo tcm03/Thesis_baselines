@@ -8,7 +8,10 @@ class TrainProgressLog:
         step: int, 
         loss: float, 
         grad_norm: float, 
-        learning_rate: float
+        learning_rate: float,
+        video_path: str,
+        cls_pred: str,
+        gen_pred: str
     ):
         self.run_type = run_type
         self.epoch = epoch
@@ -17,6 +20,10 @@ class TrainProgressLog:
         self.grad_norm = grad_norm
         self.learning_rate = learning_rate
 
+        self.video_path = video_path
+        self.cls_pred = cls_pred
+        self.gen_pred = gen_pred
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "run_type": self.run_type,
@@ -24,7 +31,10 @@ class TrainProgressLog:
             "step": self.step,
             "loss": self.loss,
             "grad_norm": self.grad_norm,
-            "learning_rate": self.learning_rate
+            "learning_rate": self.learning_rate,
+            "video_path": self.video_path,
+            "cls_pred": self.cls_pred,
+            "gen_pred": self.gen_pred
         }
 
 class PerfMetrics:
@@ -71,23 +81,27 @@ class PerfMetrics:
             return_dict["loss"] = self.loss
         return return_dict
 
-# class TextSimMetrics:
-#     def __init__(
-#         self,
-#         bleu: Dict[str, Any],
-#         rouge: Dict[str, Any],
-#         meteor: Dict[str, Any],
-#         bertscore: Dict[str, Any]
-#     ):
-#         self.bleu = bleu
-#         self.rouge = rouge
-#         self.meteor = meteor
-#         self.bertscore = bertscore
+class EvalProgressLog:
 
-#     def to_dict(self) -> Dict[str, Any]:
-#         return {
-#             "bleu": self.bleu,
-#             "rouge": self.rouge,
-#             "meteor": self.meteor,
-#             "bertscore": self.bertscore
-#         }
+    def __init__(
+        self,
+        epoch: float,
+        step: int,
+        video_path: str,
+        cls_pred: str,
+        gen_pred: str
+    ):
+        self.epoch = epoch
+        self.step = step
+        self.video_path = video_path
+        self.cls_pred = cls_pred
+        self.gen_pred = gen_pred
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "epoch": self.epoch,
+            "step": self.step,
+            "video_path": self.video_path,
+            "cls_pred": self.cls_pred,
+            "gen_pred": self.gen_pred
+        }

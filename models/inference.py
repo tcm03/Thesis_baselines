@@ -131,7 +131,7 @@ def forward_step(
         keywords = [stop_str]
         stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
         raw = model.module if hasattr(model, "module") else model
-        # attention_mask = ()
+        attention_mask = ()
         with torch.inference_mode():
             was_training = raw.training
             if was_training:
@@ -154,34 +154,12 @@ def forward_step(
         # eliminate starting "assistant" prefix if present
         if pred.startswith("assistant"):
             pred = pred[len("assistant"):].strip()
-        # log_rank0(f"In forward_step(): video_path: {batch['video_path']}, pred: {pred}")
+        log_rank0(f"In forward_step(): video_path: {batch['video_path']}, pred: {pred}")
         outputs["preds"] = [pred]
     return outputs
 
-def train():
-    
-    if ddp:
-        assert torch.cuda.is_available(), "Distributed training requires CUDA"
-        init_process_group(backend="nccl")
-        ddp_rank = int(os.environ["RANK"])
-        ddp_local_rank = int(os.environ["LOCAL_RANK"])
-        ddp_world_size = int(os.environ["WORLD_SIZE"])
-        device = f"cuda:{ddp_local_rank}"
-        torch.cuda.set_device(device)
-        master_process = ddp_rank == 0 # main process for logging, checkpointing, etc.
-    else:
-        # non-ddp
-        ddp_rank = 0
-        ddp_local_rank = 0
-        ddp_world_size = 1
-        master_process = True
-        device = "cpu"
-        if torch.cuda.is_available():
-            device = "cuda"
-        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            device = "mps"
-        logging.info(f"Using device: {device}")
-
+def inference():
+    device = "cuda:0"
     parser = transformers.HfArgumentParser(
         (ModelArguments, DataArguments, CustomTrainingArguments)
     )
@@ -207,23 +185,6 @@ def train():
             model_args.input_model_filename,
         )
     model.config.use_cache = False
-    # pyre-fixme[16]: `DataClass` has no attribute `freeze_backbone`.
-    if model_args.freeze_backbone:
-        model.model.requires_grad_(False)
-    # pyre-fixme[16]: `DataClass` has no attribute `gradient_checkpointing`.
-    if training_args.gradient_checkpointing:
-        # @tcm: might look here: https://junbuml.ee/grad-flow-lora-grad-ckpt
-        model.config.use_cache = False # Disable KV-cache (mandatory with ckpt)
-        model.gradient_checkpointing_enable()
-        if hasattr(model, "enable_input_require_grads"):
-            model.enable_input_require_grads()
-        else:
-            # pyre-fixme[3]: Return type must be annotated.
-            # pyre-fixme[2]: Parameter must be annotated.
-            def make_inputs_require_grad(module, input, output):
-                output.requires_grad_(True)
-
-            model.get_input_embeddings().register_forward_hook(make_inputs_require_grad)
 
     tokenizer = transformers.AutoTokenizer.from_pretrained(
         model_args.input_model_filename,
@@ -290,44 +251,8 @@ def train():
         model.config.tune_mm_mlp_adapter = training_args.tune_mm_mlp_adapter = (
             model_args.tune_mm_mlp_adapter
         )
-        if model_args.tune_mm_mlp_adapter:
-            model.requires_grad_(False)
-            # for p in model.get_model().mm_projector.parameters():
-            #     p.requires_grad = True
-            tune_modules = [
-                "mm_projector",
-                "pos_emb",
-                "vision_sampler",
-                "vision_sampler_layers",
-                "vision_query",
-                "image_newline",
-            ]
-            for name, param in model.named_parameters():
-                if any(listed_name in name for listed_name in tune_modules):
-                    param.requires_grad = True
-        if model_args.tune_lm_head and not model_args.cls_only:
-            for p in model.lm_head.parameters():
-                p.requires_grad = True
-        if model_args.tune_cls_head:
-            if not model_args.cls_only:
-                for p in model.cls_head.parameters():
-                    p.requires_grad = True
-            else:
-                for p in model.score.parameters():
-                    p.requires_grad = True
-        if model_args.tune_embed_tokens:
-            for p in model.get_input_embeddings().parameters():
-                p.requires_grad = True
         model.config.freeze_mm_mlp_adapter = training_args.freeze_mm_mlp_adapter  # pyre-fixme
-        if training_args.freeze_mm_mlp_adapter:
-            for p in model.get_model().mm_projector.parameters():
-                p.requires_grad = False
-        if training_args.unfreeze_mm_vision_tower:
-            if vision_tower_aux_list is not None:
-                for vision_tower_aux in vision_tower_aux_list:
-                    for p in vision_tower_aux.parameters():
-                        p.requires_grad = True
-
+        
         model.config.mm_use_im_start_end = model_args.mm_use_im_start_end = (
             model_args.mm_use_im_start_end
         )
@@ -352,6 +277,7 @@ def train():
         model.to(torch.bfloat16)
     elif training_args.fp16:
         model.to(torch.float16)
+    model.requires_grad_(False)
     model.to(device)
     # pyre-fixme
     def convert_bn_to_float(model):
@@ -362,53 +288,10 @@ def train():
         return model
 
     model = convert_bn_to_float(model)
-    if master_process:
-        count_parameters(model, print_layers = True)
-    if ddp:
-        model = DDP(model, device_ids=[ddp_local_rank])
-    log_rank0("Wrapped in DDP")
 
-    num_epochs: int = training_args.num_train_epochs
-    last_epoch: int = 0
-    batch_in_last_epoch: int = -1
-    global_steps: int = 0
-    gradient_accumulation_steps: int = int(training_args.gradient_accumulation_steps)
-    # Create a reproducible generator
     generator = torch.Generator()
     epoch_seed: int = GLOBAL_SEED
-    if training_args.resume_from_checkpoint is not None:
-        checkpoint_base_dir = os.path.dirname(training_args.resume_from_checkpoint)
-        assert os.path.isdir(checkpoint_base_dir), f"Checkpoint base dir {checkpoint_base_dir} does not exist"
-        assert os.path.isfile(training_args.resume_from_checkpoint), f"Checkpoint {training_args.resume_from_checkpoint} is not a file"
-        ckpt = load_checkpoint(
-            training_args.resume_from_checkpoint, 
-            training_args,
-            model,
-            generator, # load rng states
-            load_optimizer=True, 
-            load_scheduler=True
-        )
-        log_rank0("Loaded checkpoint")
-        world_size = ckpt["world_size"]
-        assert world_size == ddp_world_size, f"World size mismatch: ckpt world size = {world_size} != current world size = {ddp_world_size}"
-        ckpt_gradient_accumulation_steps = ckpt["gradient_accumulation_steps"]
-        assert gradient_accumulation_steps == ckpt_gradient_accumulation_steps, f"Gradient accumulation steps mismatch: ckpt gradient accumulation steps = {ckpt_gradient_accumulation_steps} != current gradient accumulation steps = {gradient_accumulation_steps}"
-        ckpt_per_device_train_batch_size = ckpt["per_device_train_batch_size"]
-        assert training_args.per_device_train_batch_size == ckpt_per_device_train_batch_size, f"Per-device train batch size mismatch: ckpt per-device train batch size = {ckpt_per_device_train_batch_size} != current per-device train batch size = {training_args.per_device_train_batch_size}"
-        ckpt_rank = ckpt["rank"]
-        assert ckpt_rank == ddp_rank, f"Rank mismatch: ckpt rank = {ckpt_rank} != current rank = {ddp_rank}"
-
-        optimizer = ckpt["optimizer"]
-        scheduler = ckpt["scheduler"]
-        last_epoch = ckpt["last_epoch"]
-        batch_in_last_epoch = ckpt["batch_in_last_epoch"]
-        global_steps = ckpt["global_steps"]
-        num_warmup_steps = ckpt["num_warmup_steps"]
-        num_training_steps = ckpt["num_training_steps"]
-        epoch_seed = ckpt["epoch_seed"]
-    else:
-        generator.manual_seed(GLOBAL_SEED)
-    # log_rank0(f"[DBG] after _load / manual_seed  : gen={gen_hex(generator)}")
+    generator.manual_seed(GLOBAL_SEED)
     
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
     train_dataset = data_module["train_dataset"]
@@ -474,7 +357,6 @@ def train():
     train_log_fpath = os.path.join(training_args.output_dir, training_args.train_log)
     train_perf_log_fpath = os.path.join(training_args.output_dir, training_args.train_perf_log)
     eval_perf_log_fpath = os.path.join(training_args.output_dir, training_args.eval_perf_log)
-    eval_log_fpath = os.path.join(training_args.output_dir, training_args.eval_log)
     train_logs: List[TrainProgressLog] = []
     train_perf: List[PerfMetrics] = []
     eval_perf: List[PerfMetrics] = []
@@ -548,11 +430,7 @@ def train():
                         step=global_steps,
                         loss=train_loss_accum.item(),
                         grad_norm=total_norm,
-                        learning_rate=optimizer.param_groups[0]["lr"],
-                        # @tcm: At the moment, print out predicted label and text for last video in the batch at logging steps
-                        video_path=batch["video_paths"][0],
-                        cls_pred=cur_preds.item(),
-                        gen_pred=outputs["preds"][0]
+                        learning_rate=optimizer.param_groups[0]["lr"]
                     ))
                     with open(train_log_fpath, "w") as f:
                         json_train_logs = [log.to_dict() for log in train_logs]
@@ -611,7 +489,6 @@ def train():
                     eval_device_samples = 0
                     eval_device_preds, eval_device_gold_labels = [], []
                     eval_device_text_preds, eval_device_text_references = [], []
-                    eval_video_paths = []
                     for eval_batch_idx, eval_batch in enumerate(eval_dataloader):
                         log_rank0(f'After epoch {epoch + 1}, eval batch {eval_batch_idx+1}/{len(eval_dataloader)}')
 
@@ -644,28 +521,7 @@ def train():
                             eval_device_samples += eval_labels.shape[0]
                             eval_device_text_preds.extend(outputs["preds"])
                             eval_device_text_references.extend(eval_batch["responses"])
-                            eval_video_paths.extend(eval_batch["video_paths"])
-
-                    if master_process:
-                        # logging.info(f"Eval video paths: {eval_video_paths}")
-                        # @tcm: At the moment, print out predicted label and generated text for each video in the eval set.
-                        assert len(eval_video_paths) == len(eval_device_text_preds) and len(eval_video_paths) == len(eval_device_preds), "need equal"
-                        eval_logs: List[EvalProgressLog] = []
-                        for video_path, cls_pred, gen_pred in zip(eval_video_paths, eval_device_preds, eval_device_text_preds):
-                            eval_logs.append(EvalProgressLog(
-                                epoch=epoch + (batch_idx+1) / len(train_dataloader),
-                                step=global_steps,
-                                video_path=video_path,
-                                cls_pred=cls_pred.item(),
-                                gen_pred=gen_pred
-                            ))
-                        cur_eval_log_fname = os.path.basename(eval_log_fpath).split(".")[0] + f"-epoch{epoch}-step{global_steps}.json"
-                        cur_eval_log_fdir = os.path.dirname(eval_log_fpath)
-                        cur_eval_log_fpath = os.path.join(cur_eval_log_fdir, cur_eval_log_fname)
-                        with open(cur_eval_log_fpath, "w") as f:
-                            json_eval_logs = [log.to_dict() for log in eval_logs]
-                            json.dump(json_eval_logs, f, indent=4)
-
+                    
                     eval_gathered_preds = [None for _ in range(ddp_world_size)] if master_process else None
                     dist.gather_object(eval_device_text_preds, eval_gathered_preds, dst=0)
                     eval_gathered_references = [None for _ in range(ddp_world_size)] if master_process else None
@@ -735,6 +591,4 @@ def train():
         destroy_process_group()
 
 if __name__ == "__main__":
-    # os.makedirs(SAFETENSORS_PATH, exist_ok=True)
-    # mp.set_start_method('spawn')
-    train()
+    inference()
