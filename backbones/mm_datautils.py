@@ -22,7 +22,6 @@ from backbones.constants import (
     DEFAULT_IMAGE_TOKEN,
     IGNORE_INDEX,
     IMAGE_TOKEN_INDEX,
-    CLS_TOKEN_INDEX,
 )
 
 # pyre-fixme[21]: Could not find module `decord`.
@@ -729,12 +728,8 @@ def preprocess_llama3(
     # When there is actually an image, we add the image tokens as a special token
     if has_image:
         tokenizer.add_tokens(["<image>"], special_tokens=True)
-        
-        # @tcm: attempt to add a special classification token for the auxiliary classification task (besides text generation)
-        # tokenizer.add_tokens(["<cls>"], special_tokens=True)
     
     image_token_index = tokenizer.convert_tokens_to_ids("<image>")
-    # cls_token_index = tokenizer.convert_tokens_to_ids("<cls>")
     bos_token_id = tokenizer.convert_tokens_to_ids("<|begin_of_text|>")
     start_header_id = tokenizer.convert_tokens_to_ids("<|start_header_id|>")
     end_header_id = tokenizer.convert_tokens_to_ids("<|end_header_id|>")
@@ -821,9 +816,6 @@ def preprocess_llama3(
                 target[idx] = encode_id
             if encode_id == image_token_index:
                 input_id[idx] = IMAGE_TOKEN_INDEX
-            # if encode_id == cls_token_index:
-            #     input_id[idx] = CLS_TOKEN_INDEX
-                # target[idx] = IGNORE_INDEX
         input_ids.append(input_id)
         targets.append(target)
     input_ids = torch.tensor(input_ids, dtype=torch.long)

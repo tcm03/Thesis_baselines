@@ -311,7 +311,7 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
         # -------- First call (prefill) -------------------------------
         if not incremental:
             assert inputs_embeds is None, "inputs_embeds should be None in prefill phase"
-            cls_pos = None
+            vid_sequence_ranges = None
             (
                 input_ids,
                 position_ids,
@@ -319,7 +319,7 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
                 past_key_values,
                 inputs_embeds,
                 labels,
-                cls_pos,
+                vid_sequence_ranges,
                 vision_tower_aux_feature_list,
                 vision_tower_aux_attention_masks_list,
                 final_vision_feature_size,
@@ -334,8 +334,8 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
                 image_aux_attention_masks_list,
                 image_sizes,
             )
-            assert cls_pos is not None, "Batch CLS token positions not found" # => still die in this assertion !!!
-        # NOTE: cls_pos undefined in incremental mode – that’s fine.
+            assert vid_sequence_ranges is not None, "Batch video sequence ranges not found"
+        # NOTE: vid_sequence_ranges undefined in incremental mode – that’s fine.
 
         output_attentions = (
             output_attentions
@@ -373,12 +373,16 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
             logits = self.lm_head(token_hidden).float()      # [bs,1,V]
             cls_logits = None
         else:
-            assert hidden_states.shape[0] == len(cls_pos), f"Batch size of hidden states different from batch size of cls_pos"
+            assert hidden_states.shape[0] == len(vid_sequence_ranges), f"Batch size of hidden states different from batch size of vid_sequence_ranges"
             logits = self.lm_head(hidden_states).float()            # [bs,N,V]
-            # extract <cls> once
-            cls_states = hidden_states[torch.arange(hidden_states.size(0)), cls_pos]
-            assert cls_states.shape == (hidden_states.shape[0], hidden_states.shape[2]), f"Shape of cls_states different from shape of hidden_states"
-            cls_logits = self.cls_head(cls_states).float()   # [bs,3]
+            # extract sub-tensor of video tokens
+            vid_states = []
+            for b_i in range(hidden_states.shape[0]):
+                vid_hidden_states = hidden_states[b_i, vid_sequence_ranges[b_i][0]:vid_sequence_ranges[b_i][1], :]
+                vid_states.append(vid_hidden_states.mean(dim=0)) # mean of video hidden representations
+            vid_states = torch.stack(vid_states, dim=0)
+            assert vid_states.shape == (hidden_states.shape[0], hidden_states.shape[2]), f"Shape of vid_states different from shape of hidden_states"
+            cls_logits = self.cls_head(vid_states).float()   # [bs,3]
 
         # -------- Losses (train mode) -------------------------------
         loss = None

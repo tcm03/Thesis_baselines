@@ -50,7 +50,7 @@ logging.basicConfig(
     format="%(asctime)s - %(filename)s:%(lineno)d - %(funcName)s - %(levelname)s - %(message)s"
 )
 
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:256"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
 
 GLOBAL_SEED = 1337
 torch.manual_seed(GLOBAL_SEED)
@@ -560,13 +560,6 @@ def train():
                     # for param_group in optimizer.param_groups:
                     #     cur_lr = param_group["lr"]
                     #     logging.info(f'lr: {cur_lr:.10f}')
-                
-                # zero out grads for all original tokens, keep <cls> trainable
-                with torch.no_grad():
-                    grad = model.module.get_input_embeddings().weight.grad if hasattr(model, "module") else model.get_input_embeddings().weight.grad
-                    if grad is not None:
-                        assert grad.ndim == 2, "require grad.ndim == 2"
-                        grad[:-1, :] = 0          # zero out grads for all original tokens
                 
                 optimizer.step()
                 scheduler.step()

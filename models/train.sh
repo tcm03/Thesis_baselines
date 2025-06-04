@@ -3,10 +3,10 @@ PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
 TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_engcaption_cls.json"
 EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_engcaption_cls.json"
 
-OUTPUT_DIR="./checkpoints/test"
+OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txtcls_avgcls_2"
 
-CKPT_NAME="test"
-PREV_STAGE_CHECKPOINT="./checkpoints/longvu_llama_snapugc0_txtcls_txteval/longvu_llama_snapugc0_txtcls_txteval-epoch0-step379.pt"
+CKPT_NAME="longvu_llama_snapugc0_txtcls_avgcls_2"
+PREV_STAGE_CHECKPOINT="./checkpoints/longvu_llama_snapugc0_txtcls_avgcls/longvu_llama_snapugc0_txtcls_avgcls-epoch0-step379.pt"
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
 
@@ -18,10 +18,10 @@ torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
   --image_folders $PATH_TO_FOLDERS \
   --train_paths $TRAIN_PATHS \
   --eval_paths $EVAL_PATHS \
-  --train_log "train_log_txtcls_txteval.json" \
-  --train_perf_log "train_perf_txtcls_txteval.json" \
-  --eval_perf_log "eval_perf_txtcls_txteval.json" \
-  --eval_log "eval_log_txtcls_txteval.json" \
+  --train_log "train_log_txtcls_avgcls.json" \
+  --train_perf_log "train_perf_txtcls_avgcls.json" \
+  --eval_perf_log "eval_perf_txtcls_avgcls.json" \
+  --eval_log "eval_log_txtcls_avgcls.json" \
   --model_max_length 8192 \
   --fp16 False \
   --bf16 True \
@@ -65,4 +65,4 @@ torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 1 \
   --gradient_accumulation_steps 8 \
-  # --resume_from_checkpoint $PREV_STAGE_CHECKPOINT
+  --resume_from_checkpoint $PREV_STAGE_CHECKPOINT
