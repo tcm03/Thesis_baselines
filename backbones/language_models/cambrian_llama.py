@@ -417,7 +417,7 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
         attention_mask = kwargs.pop("attention_mask", None)
         if "inputs_embeds" in kwargs:
             raise NotImplementedError("`inputs_embeds` is not supported")
-        log_rank0(f"In CambrianLlamaForCausalLM.generate(): before prepare_inputs_labels_for_multimodal(): inputs.shape: {inputs.shape}")
+        # log_rank0(f"In CambrianLlamaForCausalLM.generate(): before prepare_inputs_labels_for_multimodal(): inputs.shape: {inputs.shape}")
         if images is not None:
             (
                 inputs,
@@ -456,7 +456,7 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
             self.global_context_feature = global_context_feature
         else:
             inputs_embeds = self.get_model().embed_tokens(inputs)
-        log_rank0(f"In CambrianLlamaForCausalLM.generate(): inputs_embeds.shape: {inputs_embeds.shape}")
+        # log_rank0(f"In CambrianLlamaForCausalLM.generate(): inputs_embeds.shape: {inputs_embeds.shape}")
         # pyre-fixme[16]: `LlamaForCausalLM` has no attribute `generate`.
         return super().generate(
             position_ids=position_ids,

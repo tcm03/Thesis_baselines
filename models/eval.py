@@ -77,22 +77,22 @@ def evaluate_perf(
         )
 
         # 1. BLEU score
-        if "bleu" in kwargs:
+        if "bleu" in kwargs and predictions is not None and references is not None:
             bleu = kwargs["bleu"]
             bleu_score = bleu.compute(predictions=predictions, references=[[ref] for ref in references])
             cur_perf.bleu = bleu_score
         # 2. ROUGE score
-        if "rouge" in kwargs:
+        if "rouge" in kwargs and predictions is not None and references is not None:
             rouge = kwargs["rouge"]
             rouge_score = rouge.compute(predictions=predictions, references=references)
             cur_perf.rouge = rouge_score
         # 3. Meteor score
-        if "meteor" in kwargs:
+        if "meteor" in kwargs and predictions is not None and references is not None:
             meteor = kwargs["meteor"]
             meteor_score = meteor.compute(predictions=predictions, references=references)
             cur_perf.meteor = meteor_score
         # 4. BERTScore
-        if "bertscore" in kwargs:
+        if "bertscore" in kwargs and predictions is not None and references is not None:
             bertscore = kwargs["bertscore"]
             bertscore_score = bertscore.compute(predictions=predictions, references=references, lang="en")
             # aggregate mean precision, recall and f1 of bertscore

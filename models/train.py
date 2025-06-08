@@ -467,9 +467,9 @@ def train():
     logging_steps: int = int(training_args.logging_steps)
     eval_steps: int = int(training_args.eval_steps)
     save_steps: int = int(training_args.save_steps)
-    if master_process and os.path.exists(training_args.output_dir):
-        raise ValueError(f"Output directory {training_args.output_dir} already exists")
     if master_process:
+        if os.path.exists(training_args.output_dir):
+            raise ValueError(f"Output directory {training_args.output_dir} already exists")
         os.makedirs(training_args.output_dir, exist_ok=True)
     train_log_fpath = os.path.join(training_args.output_dir, training_args.train_log)
     train_perf_log_fpath = os.path.join(training_args.output_dir, training_args.train_perf_log)
@@ -478,10 +478,11 @@ def train():
     train_logs: List[TrainProgressLog] = []
     train_perf: List[PerfMetrics] = []
     eval_perf: List[PerfMetrics] = []
-    bleu = evaluate.load("bleu")
-    rouge = evaluate.load("rouge")
-    meteor = evaluate.load("meteor")
-    bertscore = evaluate.load("bertscore")
+    if training_args.generation_eval:
+        bleu = evaluate.load("bleu")
+        rouge = evaluate.load("rouge")
+        meteor = evaluate.load("meteor")
+        bertscore = evaluate.load("bertscore")
 
     log_rank0("Starting training")
     for epoch in range(from_epoch, num_epochs):
@@ -519,15 +520,16 @@ def train():
                     gen_config_dict={
                         "do_sample": False,
                         "max_new_tokens": 256,
-                        "num_beams": 3,
+                        "num_beams": 1,
                         "use_cache": True,
-                    }
+                    } if training_args.generation_eval else None
                 )
                 cur_preds = torch.argmax(outputs.cls_logits, dim=-1)
                 train_device_preds.append(cur_preds)
                 train_device_gold_labels.append(train_labels)
-                train_device_text_preds.extend(outputs["preds"])
-                train_device_text_references.extend(batch["responses"])
+                if training_args.generation_eval:
+                    train_device_text_preds.extend(outputs["preds"])
+                    train_device_text_references.extend(batch["responses"])
                 loss = outputs.loss
                 loss = loss / gradient_accumulation_steps
                 train_loss_accum += loss.detach()
@@ -552,7 +554,7 @@ def train():
                         # @tcm: At the moment, print out predicted label and text for last video in the batch at logging steps
                         video_path=batch["video_paths"][0],
                         cls_pred=cur_preds.item(),
-                        gen_pred=outputs["preds"][0]
+                        gen_pred=outputs["preds"][0] if training_args.generation_eval else None
                     ))
                     with open(train_log_fpath, "w") as f:
                         json_train_logs = [log.to_dict() for log in train_logs]
@@ -583,18 +585,18 @@ def train():
                     do_eval = True
                 if do_eval:
                     # evaluate on the training fraction first
+                    text_evaluators = {}
+                    if training_args.generation_eval:
+                        text_evaluators = {"bleu": bleu, "rouge": rouge, "meteor": meteor, "bertscore": bertscore}
                     train_perf_log = evaluate_perf(
                         device_preds=train_device_preds,
                         device_gold_labels=train_device_gold_labels,
                         prefix="Train",
-                        predictions=train_device_text_preds,
-                        references=train_device_text_references,
+                        predictions=train_device_text_preds if training_args.generation_eval else None,
+                        references=train_device_text_references if training_args.generation_eval else None,
                         epoch=epoch + (batch_idx+1) / len(train_dataloader),
                         step=global_steps,
-                        bleu=bleu,
-                        rouge=rouge,
-                        meteor=meteor,
-                        bertscore=bertscore
+                        **text_evaluators
                     )
                     if train_perf_log is not None:
                         # only on master process
@@ -630,9 +632,9 @@ def train():
                                 gen_config_dict={
                                     "do_sample": False,
                                     "max_new_tokens": 256,
-                                    "num_beams": 3,
+                                    "num_beams": 1,
                                     "use_cache": True,
-                                }
+                                } if training_args.generation_eval else None
                             )
                             eval_logits = outputs.cls_logits
                             cur_preds = torch.argmax(eval_logits, dim=-1)
@@ -642,11 +644,12 @@ def train():
                             eval_loss = loss_fnc(eval_logits, eval_labels)
                             eval_device_loss += eval_loss.item() * eval_labels.shape[0]
                             eval_device_samples += eval_labels.shape[0]
-                            eval_device_text_preds.extend(outputs["preds"])
-                            eval_device_text_references.extend(eval_batch["responses"])
+                            if training_args.generation_eval:
+                                eval_device_text_preds.extend(outputs["preds"])
+                                eval_device_text_references.extend(eval_batch["responses"])
                             eval_video_paths.extend(eval_batch["video_paths"])
 
-                    if master_process:
+                    if master_process and training_args.generation_eval:
                         # logging.info(f"Eval video paths: {eval_video_paths}")
                         # @tcm: At the moment, print out predicted label and generated text for each video in the eval set.
                         assert len(eval_video_paths) == len(eval_device_text_preds) and len(eval_video_paths) == len(eval_device_preds), "need equal"
@@ -667,10 +670,11 @@ def train():
                             json.dump(json_eval_logs, f, indent=4)
 
                     eval_gathered_preds = [None for _ in range(ddp_world_size)] if master_process else None
-                    dist.gather_object(eval_device_text_preds, eval_gathered_preds, dst=0)
                     eval_gathered_references = [None for _ in range(ddp_world_size)] if master_process else None
-                    dist.gather_object(eval_device_text_references, eval_gathered_references, dst=0)
-                    if master_process:
+                    if training_args.generation_eval:
+                        dist.gather_object(eval_device_text_preds, eval_gathered_preds, dst=0)
+                        dist.gather_object(eval_device_text_references, eval_gathered_references, dst=0)
+                    if master_process and training_args.generation_eval:
                         # flatten
                         eval_gathered_preds = [pred for rank_preds in eval_gathered_preds for pred in rank_preds]
                         eval_gathered_references = [ref for rank_refs in eval_gathered_references for ref in rank_refs]
@@ -680,15 +684,12 @@ def train():
                         device_samples=eval_device_samples,
                         device_preds=eval_device_preds,
                         device_gold_labels=eval_device_gold_labels,
-                        predictions=eval_gathered_preds,
-                        references=eval_gathered_references,
+                        predictions=eval_gathered_preds if training_args.generation_eval else None,
+                        references=eval_gathered_references if training_args.generation_eval else None,
                         prefix="Eval",
                         epoch=epoch + (batch_idx+1) / len(train_dataloader),
                         step=global_steps,
-                        bleu=bleu,
-                        rouge=rouge,
-                        meteor=meteor,
-                        bertscore=bertscore
+                        **text_evaluators
                     )
                     if eval_perf_log is not None:
                         # only on master process
