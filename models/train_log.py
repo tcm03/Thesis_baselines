@@ -9,9 +9,9 @@ class TrainProgressLog:
         loss: float, 
         grad_norm: float, 
         learning_rate: float,
-        video_path: str,
-        cls_pred: str,
-        gen_pred: str
+        video_path: str = None,
+        cls_pred: str = None,
+        gen_pred: str = None
     ):
         self.run_type = run_type
         self.epoch = epoch

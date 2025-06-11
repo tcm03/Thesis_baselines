@@ -3,9 +3,9 @@ PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
 TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_engcaption_cls.json"
 EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_engcaption_cls.json"
 
-OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txtcls_test2"
+OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_clsonly"
 
-CKPT_NAME="test2"
+CKPT_NAME="longvu_llama_snapugc0_clsonly"
 PREV_STAGE_CHECKPOINT="./checkpoints/longvu_llama_snapugc0_txtcls_test0/longvu_llama_snapugc0_txtcls_test0-epoch0-step378.pt"
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
@@ -18,10 +18,10 @@ torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
   --image_folders $PATH_TO_FOLDERS \
   --train_paths $TRAIN_PATHS \
   --eval_paths $EVAL_PATHS \
-  --train_log "train_log_txtcls_txteval.json" \
-  --train_perf_log "train_perf_txtcls_txteval.json" \
-  --eval_perf_log "eval_perf_txtcls_txteval.json" \
-  --eval_log "eval_log_txtcls_txteval.json" \
+  --train_log "train_log_clsonly.json" \
+  --train_perf_log "train_perf_clsonly.json" \
+  --eval_perf_log "eval_perf_clsonly.json" \
+  --eval_log "eval_log_clsonly.json" \
   --model_max_length 8192 \
   --fp16 False \
   --bf16 True \
@@ -40,7 +40,7 @@ torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
   --tune_mm_mlp_adapter True \
   --tune_lm_head True \
   --tune_cls_head True \
-  --cls_only False \
+  --cls_only True \
   --tune_embed_tokens False \
   --freeze_mm_mlp_adapter False \
   --freeze_backbone True \
@@ -55,12 +55,12 @@ torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
   --drop_threshold 0.8 \
   --eval_strategy "steps" \
   --eval_steps 76 \
-  --save_strategy "no" \
+  --save_strategy "steps" \
   --save_steps 189 \
   --logging_steps 10 \
   --num_train_epochs 2 \
   --warmup_ratio 0.03 \
-  --learning_rate 4e-5 \
+  --learning_rate 3e-5 \
   --weight_decay 0. \
   --cls_loss_weight 0.5 \
   --per_device_train_batch_size 1 \

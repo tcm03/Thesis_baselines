@@ -517,19 +517,10 @@ def train():
                     tokenizer, 
                     cls_only=model_args.cls_only,
                     cls_loss_weight=training_args.cls_loss_weight,
-                    gen_config_dict={
-                        "do_sample": False,
-                        "max_new_tokens": 256,
-                        "num_beams": 1,
-                        "use_cache": True,
-                    } if training_args.generation_eval else None
                 )
                 cur_preds = torch.argmax(outputs.cls_logits, dim=-1)
                 train_device_preds.append(cur_preds)
                 train_device_gold_labels.append(train_labels)
-                if training_args.generation_eval:
-                    train_device_text_preds.extend(outputs["preds"])
-                    train_device_text_references.extend(batch["responses"])
                 loss = outputs.loss
                 loss = loss / gradient_accumulation_steps
                 train_loss_accum += loss.detach()
@@ -551,10 +542,10 @@ def train():
                         loss=train_loss_accum.item(),
                         grad_norm=total_norm,
                         learning_rate=optimizer.param_groups[0]["lr"],
-                        # @tcm: At the moment, print out predicted label and text for last video in the batch at logging steps
-                        video_path=batch["video_paths"][0],
-                        cls_pred=cur_preds.item(),
-                        gen_pred=outputs["preds"][0] if training_args.generation_eval else None
+                        # @tcm: At the moment, stop printing out predicted label and text for last video in the batch at logging steps because of longer training
+                        # video_path=batch["video_paths"][0],
+                        # cls_pred=cur_preds.item(),
+                        # gen_pred=outputs["preds"][0] if training_args.generation_eval else None
                     ))
                     with open(train_log_fpath, "w") as f:
                         json_train_logs = [log.to_dict() for log in train_logs]
@@ -585,18 +576,14 @@ def train():
                     do_eval = True
                 if do_eval:
                     # evaluate on the training fraction first
-                    text_evaluators = {}
-                    if training_args.generation_eval:
-                        text_evaluators = {"bleu": bleu, "rouge": rouge, "meteor": meteor, "bertscore": bertscore}
                     train_perf_log = evaluate_perf(
                         device_preds=train_device_preds,
                         device_gold_labels=train_device_gold_labels,
                         prefix="Train",
-                        predictions=train_device_text_preds if training_args.generation_eval else None,
-                        references=train_device_text_references if training_args.generation_eval else None,
+                        predictions=None,
+                        references=None,
                         epoch=epoch + (batch_idx+1) / len(train_dataloader),
                         step=global_steps,
-                        **text_evaluators
                     )
                     if train_perf_log is not None:
                         # only on master process
@@ -678,7 +665,9 @@ def train():
                         # flatten
                         eval_gathered_preds = [pred for rank_preds in eval_gathered_preds for pred in rank_preds]
                         eval_gathered_references = [ref for rank_refs in eval_gathered_references for ref in rank_refs]
-
+                    text_evaluators = {}
+                    if training_args.generation_eval:
+                        text_evaluators = {"bleu": bleu, "rouge": rouge, "meteor": meteor, "bertscore": bertscore}
                     eval_perf_log = evaluate_perf(
                         device_loss=eval_device_loss,
                         device_samples=eval_device_samples,

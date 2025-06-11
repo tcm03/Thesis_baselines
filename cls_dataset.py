@@ -2,8 +2,8 @@ import os
 import json
 
 if __name__ == "__main__":
-    src_path = "/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_test_engcaption.json"
-    dst_path = "/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_test_engcaption_cls.json"
+    src_path = "/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_test_gemini_rawcap.json"
+    dst_path = "/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_test_gemini_rawcap_cls.json"
     with open(src_path, "r") as f:
         data = json.load(f)
     for item in data:
