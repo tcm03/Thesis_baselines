@@ -3,15 +3,15 @@ import os
 import matplotlib.pyplot as plt
 
 # Define the directory to save images
-output_dir = 'images/txtcls_w0.7'
+output_dir = 'images/clsonly_vs_txtcls'
 os.makedirs(output_dir, exist_ok=True)
 
 # Load training performance data
-with open('checkpoints/longvu_llama_snapugc0_txtcls_w0.7/train_perf_txtcls_w0.7.json', 'r') as f:
+with open('checkpoints/longvu_llama_snapugc0_txtcls_3e-5/eval_perf_txtcls_3e-5.json', 'r') as f:
     train_data = json.load(f)
 
 # Load evaluation performance data
-with open('checkpoints/longvu_llama_snapugc0_txtcls_w0.7/eval_perf_txtcls_w0.7.json', 'r') as f:
+with open('checkpoints/longvu_llama_snapugc0_clsonly/eval_perf_clsonly.json', 'r') as f:
     eval_data = json.load(f)
 
 # Extract epochs
@@ -31,11 +31,14 @@ eval_recall = [entry['recall']['weighted'] for entry in eval_data]
 train_f1 = [entry['f1']['weighted'] for entry in train_data]
 eval_f1 = [entry['f1']['weighted'] for entry in eval_data]
 
+train_loss = [entry['loss'] for entry in train_data]
+eval_loss = [entry['loss'] for entry in eval_data]
+
 # Define a function to plot and save metrics
 def plot_metric(train_epochs, train_values, eval_epochs, eval_values, metric_name, filename):
     plt.figure(figsize=(10, 6))
-    plt.plot(train_epochs, train_values, marker='o', label='Training')
-    plt.plot(eval_epochs, eval_values, marker='s', label='Validation')
+    plt.plot(train_epochs, train_values, marker='o', label='text-cls training')
+    plt.plot(eval_epochs, eval_values, marker='s', label='cls-only training')
     plt.title(f'{metric_name} over Epochs')
     plt.xlabel('Epoch')
     plt.ylabel(metric_name)
@@ -46,7 +49,8 @@ def plot_metric(train_epochs, train_values, eval_epochs, eval_values, metric_nam
     plt.close()
 
 # Plot and save each metric
-plot_metric(train_epochs, train_accuracy, eval_epochs, eval_accuracy, 'Accuracy', 'accuracy_over_epochs.png')
-plot_metric(train_epochs, train_precision, eval_epochs, eval_precision, 'Precision (Weighted)', 'precision_over_epochs.png')
-plot_metric(train_epochs, train_recall, eval_epochs, eval_recall, 'Recall (Weighted)', 'recall_over_epochs.png')
-plot_metric(train_epochs, train_f1, eval_epochs, eval_f1, 'F1 Score (Weighted)', 'f1_score_over_epochs.png')
+plot_metric(train_epochs, train_accuracy, eval_epochs, eval_accuracy, 'Accuracy of txt-cls vs cls-only', 'accuracy_over_epochs.png')
+plot_metric(train_epochs, train_precision, eval_epochs, eval_precision, 'Precision (Weighted) of txt-cls vs cls-only', 'precision_over_epochs.png')
+plot_metric(train_epochs, train_recall, eval_epochs, eval_recall, 'Recall (Weighted) of txt-cls vs cls-only', 'recall_over_epochs.png')
+plot_metric(train_epochs, train_f1, eval_epochs, eval_f1, 'F1 Score (Weighted) of txt-cls vs cls-only', 'f1_score_over_epochs.png')
+plot_metric(train_epochs, train_loss, eval_epochs, eval_loss, 'Loss of txt-cls vs cls-only', 'loss_over_epochs.png')

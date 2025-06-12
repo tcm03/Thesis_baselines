@@ -530,7 +530,7 @@ def train():
                 # cur_preds = torch.argmax(outputs.cls_logits, dim=-1)
                 # train_device_preds.append(cur_preds)
                 # train_device_gold_labels.append(train_labels)
-                loss = 0.5 * outputs["engagement"].loss + 0.5 * outputs["rationale"].loss
+                loss = 0.5 * outputs["engagement"].loss + 0.5 * outputs["rationale"].loss # I predict the CUDA OOM error stems from here, where loss graphs of two forward passes are combined
                 loss = loss / gradient_accumulation_steps
                 train_loss_accum += loss.detach()
                 loss.backward()
@@ -660,7 +660,7 @@ def train():
                     dist.gather_object(eval_engagement_preds, all_engagement_preds, dst=0)
                     if master_process:
                         with open(eval_log_fpath, "w") as f:
-                            json.dump(all_engagement_preds[0], f, indent=4)
+                            json.dump(all_engagement_preds, f, indent=4)
 
                     if master_process and training_args.generation_eval:
                         # logging.info(f"Eval video paths: {eval_video_paths}")

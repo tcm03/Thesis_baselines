@@ -3,9 +3,9 @@ PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
 TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_engcaption_image.json"
 EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_engcaption_image.json"
 
-OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txt2txt_resume"
+OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txt2txt_resume_again"
 
-CKPT_NAME="longvu_llama_snapugc0_txt2txt_resume"
+CKPT_NAME="longvu_llama_snapugc0_txt2txt_resume_again"
 PREV_STAGE_CHECKPOINT=""
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
