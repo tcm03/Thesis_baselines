@@ -1,16 +1,16 @@
 #!/bin/bash
 PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
-TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_engcaption_cls.json"
-EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_engcaption_cls.json"
+TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_engcaption_image.json"
+EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_engcaption_image.json"
 
-OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_clsonly"
+OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txt2txt_resume"
 
-CKPT_NAME="longvu_llama_snapugc0_clsonly"
-PREV_STAGE_CHECKPOINT="./checkpoints/longvu_llama_snapugc0_txtcls_test0/longvu_llama_snapugc0_txtcls_test0-epoch0-step378.pt"
+CKPT_NAME="longvu_llama_snapugc0_txt2txt_resume"
+PREV_STAGE_CHECKPOINT=""
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
 
-torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
+torchrun --nproc_per_node=2 --master_port=29505 models/train.py \
   --output_dir $OUTPUT_DIR \
   --input_model_filename $MODEL_PATH \
   --output_model_filename $OUTPUT_DIR \
@@ -18,10 +18,10 @@ torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
   --image_folders $PATH_TO_FOLDERS \
   --train_paths $TRAIN_PATHS \
   --eval_paths $EVAL_PATHS \
-  --train_log "train_log_clsonly.json" \
-  --train_perf_log "train_perf_clsonly.json" \
-  --eval_perf_log "eval_perf_clsonly.json" \
-  --eval_log "eval_log_clsonly.json" \
+  --train_log "train_log.json" \
+  --train_perf_log "train_perf.json" \
+  --eval_perf_log "eval_perf.json" \
+  --eval_log "eval_log.json" \
   --model_max_length 8192 \
   --fp16 False \
   --bf16 True \
@@ -39,8 +39,7 @@ torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
   --lazy_preprocess True \
   --tune_mm_mlp_adapter True \
   --tune_lm_head True \
-  --tune_cls_head True \
-  --cls_only True \
+  --cls_only False \
   --tune_embed_tokens False \
   --freeze_mm_mlp_adapter False \
   --freeze_backbone True \
@@ -55,15 +54,15 @@ torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
   --drop_threshold 0.8 \
   --eval_strategy "steps" \
   --eval_steps 76 \
-  --save_strategy "steps" \
+  --save_strategy "epoch" \
   --save_steps 189 \
   --logging_steps 10 \
-  --num_train_epochs 2 \
+  --num_train_epochs 1 \
   --warmup_ratio 0.03 \
-  --learning_rate 3e-5 \
+  --learning_rate 1e-5 \
   --weight_decay 0. \
   --cls_loss_weight 0.5 \
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 1 \
-  --gradient_accumulation_steps 16 \
+  --gradient_accumulation_steps 32 \
   # --resume_from_checkpoint $PREV_STAGE_CHECKPOINT

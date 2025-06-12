@@ -261,12 +261,17 @@ class LazySupervisedDataset(Dataset):
             )
         else:
             sources = copy.deepcopy([e["conversations"] for e in sources])
-        data_dict = preprocess(sources, self.tokenizer, has_image=has_image)  # pyre-fixme
+        data_dict = preprocess(sources, [eng_class], self.tokenizer, has_image=has_image)  # pyre-fixme
         if isinstance(i, int):
             data_dict = dict(
-                input_ids=data_dict["input_ids"][0], labels=data_dict["labels"][0]
+                input_ids_eng=data_dict["input_ids"][0], 
+                labels_eng=data_dict["labels"][0],
+                input_ids_rationale=data_dict["input_ids"][1],
+                labels_rationale=data_dict["labels"][1]
             )
-        if (data_dict["labels"] != IGNORE_INDEX).sum() == 0:
+        if (torch.tensor(data_dict["labels_eng"]) != IGNORE_INDEX).sum() == 0:
+            return self.__getitem__(0)
+        if (torch.tensor(data_dict["labels_rationale"]) != IGNORE_INDEX).sum() == 0:
             return self.__getitem__(0)
         # image exist in the data
         if has_image:
@@ -456,12 +461,17 @@ class EvalSupervisedDataset(LazySupervisedDataset):
             )
         else:
             sources = copy.deepcopy([e["conversations"] for e in sources])
-        data_dict = preprocess(sources, self.tokenizer, has_image=has_image, eval_mode=True)  # pyre-fixme
+        data_dict = preprocess(sources, [eng_class], self.tokenizer, has_image=has_image, eval_mode=True)  # pyre-fixme
         if isinstance(i, int):
             data_dict = dict(
-                input_ids=data_dict["input_ids"][0], labels=data_dict["labels"][0]
+                input_ids_eng=data_dict["input_ids"][0], 
+                labels_eng=data_dict["labels"][0],
+                input_ids_rationale=data_dict["input_ids"][1],
+                labels_rationale=data_dict["labels"][1]
             )
-        if (data_dict["labels"] != IGNORE_INDEX).sum() == 0:
+        if (torch.tensor(data_dict["labels_eng"]) != IGNORE_INDEX).sum() == 0:
+            return self.__getitem__(0)
+        if (torch.tensor(data_dict["labels_rationale"]) != IGNORE_INDEX).sum() == 0:
             return self.__getitem__(0)
         # image exist in the data
         if has_image:
@@ -507,9 +517,13 @@ class DataCollatorForSupervisedDataset(object):
         image_token_len = self.image_token_len
         image_aux_token_len_list = self.image_aux_token_len_list
         image_position = self.image_position
-        input_ids, labels = tuple(
-            [instance[key] for instance in instances] for key in ("input_ids", "labels")
-        )
+        # input_ids, labels = tuple(
+        #     [instance[key] for instance in instances] for key in ("input_ids", "labels")
+        # )
+        input_ids_eng = [torch.tensor(instance["input_ids_eng"]) for instance in instances]
+        labels_eng = [torch.tensor(instance["labels_eng"]) for instance in instances]
+        input_ids_rationale = [torch.tensor(instance["input_ids_rationale"]) for instance in instances]
+        labels_rationale = [torch.tensor(instance["labels_rationale"]) for instance in instances]
         responses = tuple(
             [instance["response"] for instance in instances]
         )
@@ -523,7 +537,7 @@ class DataCollatorForSupervisedDataset(object):
         # print_rank0("Pad token id is", self.tokenizer.pad_token_id)
 
         if padding_side == "left":
-            input_ids = [
+            input_ids_eng = [
                 (
                     t[:max_length]
                     if t.shape[0] >= max_length
@@ -534,9 +548,9 @@ class DataCollatorForSupervisedDataset(object):
                         self.tokenizer.pad_token_id,
                     )
                 )
-                for t in input_ids
+                for t in input_ids_eng
             ]
-            labels = [
+            labels_eng = [
                 (
                     t[:max_length]
                     if t.shape[0] >= max_length
@@ -544,10 +558,33 @@ class DataCollatorForSupervisedDataset(object):
                         t, (max_length - t.shape[0], 0), "constant", IGNORE_INDEX
                     )
                 )
-                for t in labels
+                for t in labels_eng
+            ]
+            input_ids_rationale = [
+                (
+                    t[:max_length]
+                    if t.shape[0] >= max_length
+                    else torch.nn.functional.pad(
+                        t,
+                        (max_length - t.shape[0], 0),
+                        "constant",
+                        self.tokenizer.pad_token_id,
+                    )
+                )
+                for t in input_ids_rationale
+            ]
+            labels_rationale = [
+                (
+                    t[:max_length]
+                    if t.shape[0] >= max_length
+                    else torch.nn.functional.pad(
+                        t, (max_length - t.shape[0], 0), "constant", IGNORE_INDEX
+                    )
+                )
+                for t in labels_rationale
             ]
         else:
-            input_ids = [
+            input_ids_eng = [
                 (
                     t[:max_length]
                     if t.shape[0] >= max_length
@@ -558,9 +595,9 @@ class DataCollatorForSupervisedDataset(object):
                         self.tokenizer.pad_token_id,
                     ) # @tcm: t is 1-dim tensor, pad at the end of t with pad_token_id
                 )
-                for t in input_ids
+                for t in input_ids_eng
             ]
-            labels = [
+            labels_eng = [
                 (
                     t[:max_length]
                     if t.shape[0] >= max_length
@@ -568,63 +605,127 @@ class DataCollatorForSupervisedDataset(object):
                         t, (0, max_length - t.shape[0]), "constant", IGNORE_INDEX
                     ) # @tcm: t is 1-dim tensor, pad at the end of t with IGNORE_INDEX
                 )
-                for t in labels
+                for t in labels_eng
+            ]
+            input_ids_rationale = [
+                (
+                    t[:max_length]
+                    if t.shape[0] >= max_length
+                    else torch.nn.functional.pad(
+                        t,
+                        (0, max_length - t.shape[0]),
+                        "constant",
+                        self.tokenizer.pad_token_id,
+                    ) # @tcm: t is 1-dim tensor, pad at the end of t with pad_token_id
+                )
+                for t in input_ids_rationale
+            ]
+            labels_rationale = [
+                (
+                    t[:max_length]
+                    if t.shape[0] >= max_length
+                    else torch.nn.functional.pad(
+                        t, (0, max_length - t.shape[0]), "constant", IGNORE_INDEX
+                    ) # @tcm: t is 1-dim tensor, pad at the end of t with IGNORE_INDEX
+                )
+                for t in labels_rationale
             ]
 
-        input_ids = torch.stack(input_ids)
-        labels = torch.stack(labels)
+        input_ids_eng = torch.stack(input_ids_eng)
+        labels_eng = torch.stack(labels_eng)
+        input_ids_rationale = torch.stack(input_ids_rationale)
+        labels_rationale = torch.stack(labels_rationale)
         # @tcm: attempt special cls token
         eng_classes = torch.tensor([instance["eng_class"] for instance in instances])
-        # logging.info(f'At rank {int(os.environ.get("RANK", 0))}, DataCollator eng_classes: {eng_classes}')
-        attention_mask = input_ids.ne(self.tokenizer.pad_token_id)  # pyre-fixme
+        attention_mask_eng = input_ids_eng.ne(self.tokenizer.pad_token_id)  # pyre-fixme
+        attention_mask_rationale = input_ids_rationale.ne(self.tokenizer.pad_token_id)  # pyre-fixme
         # @tcm: insert dummy image to tokenized text input_ids if there is none
-        for i in range(len(input_ids)):
-            if (input_ids[i] == IMAGE_TOKEN_INDEX).sum() == 0:
-                cur_input_ids_tmp = input_ids[i].clone()
-                cur_input_ids_tmp[image_position + 1 :] = input_ids[
+        for i in range(len(input_ids_eng)):
+            if (input_ids_eng[i] == IMAGE_TOKEN_INDEX).sum() == 0:
+                cur_input_ids_tmp = input_ids_eng[i].clone()
+                cur_input_ids_tmp[image_position + 1 :] = input_ids_eng[
                     i, image_position:-1
                 ]
                 cur_input_ids_tmp[image_position] = IMAGE_TOKEN_INDEX
-                input_ids[i] = cur_input_ids_tmp
+                input_ids_eng[i] = cur_input_ids_tmp
 
-                cur_labels_tmp = labels[i].clone()
-                cur_labels_tmp[image_position + 1 :] = labels[i, image_position:-1]
+                cur_labels_tmp = labels_eng[i].clone()
+                cur_labels_tmp[image_position + 1 :] = labels_eng[i, image_position:-1]
                 cur_labels_tmp[image_position] = IGNORE_INDEX
-                labels[i] = cur_labels_tmp
+                labels_eng[i] = cur_labels_tmp
 
-                cur_attention_mask_tmp = attention_mask[i].clone()
-                cur_attention_mask_tmp[image_position + 1 :] = attention_mask[
+                cur_attention_mask_tmp = attention_mask_eng[i].clone()
+                cur_attention_mask_tmp[image_position + 1 :] = attention_mask_eng[
                     i, image_position:-1
                 ]
                 cur_attention_mask_tmp[image_position] = False
-                attention_mask[i] = cur_attention_mask_tmp
+                attention_mask_eng[i] = cur_attention_mask_tmp
+        
+        for i in range(len(input_ids_rationale)):
+            if (input_ids_rationale[i] == IMAGE_TOKEN_INDEX).sum() == 0:
+                cur_input_ids_tmp = input_ids_rationale[i].clone()
+                cur_input_ids_tmp[image_position + 1 :] = input_ids_rationale[
+                    i, image_position:-1
+                ]
+                cur_input_ids_tmp[image_position] = IMAGE_TOKEN_INDEX
+                input_ids_rationale[i] = cur_input_ids_tmp
+
+                cur_labels_tmp = labels_rationale[i].clone()
+                cur_labels_tmp[image_position + 1 :] = labels_rationale[i, image_position:-1]
+                cur_labels_tmp[image_position] = IGNORE_INDEX
+                labels_rationale[i] = cur_labels_tmp
+
+                cur_attention_mask_tmp = attention_mask_rationale[i].clone()
+                cur_attention_mask_tmp[image_position + 1 :] = attention_mask_rationale[
+                    i, image_position:-1
+                ]
+                cur_attention_mask_tmp[image_position] = False
+                attention_mask_rationale[i] = cur_attention_mask_tmp
         image_sizes = [instance["image_size"] for instance in instances]
         (
-            new_input_ids,
-            new_labels,
-            new_attention_mask,
-            new_position_ids,
-            im_aux_attention_masks_list,
+            new_input_ids_eng,
+            new_labels_eng,
+            new_attention_mask_eng,
+            new_position_ids_eng,
+            im_aux_attention_masks_list_eng,
         ) = prepare_multimodal_data(
-            input_ids,
-            labels,
-            attention_mask,
+            input_ids_eng,
+            labels_eng,
+            attention_mask_eng,
             image_sizes,
             image_token_len,
             image_aux_token_len_list,
             max_length,
         )
-        # if int(os.environ.get("RANK", 0)) == 0:
-        #     logging.info(f"len(new_input_ids[0]) = {len(new_input_ids[0])}, new_input_ids[0][:150] = {new_input_ids[0][:150]}")
+        (
+            new_input_ids_rationale,
+            new_labels_rationale,
+            new_attention_mask_rationale,
+            new_position_ids_rationale,
+            im_aux_attention_masks_list_rationale,
+        ) = prepare_multimodal_data(
+            input_ids_rationale,
+            labels_rationale,
+            attention_mask_rationale,
+            image_sizes,
+            image_token_len,
+            image_aux_token_len_list,
+            max_length,
+        )
         batch = dict(
-            input_ids=new_input_ids,
-            labels=new_labels,
+            input_ids_eng=new_input_ids_eng,
+            labels_eng=new_labels_eng,
+            input_ids_rationale=new_input_ids_rationale,
+            labels_rationale=new_labels_rationale,
             eng_classes=eng_classes,
             responses=responses,
             video_paths=video_paths,
-            attention_mask=new_attention_mask,
-            position_ids=new_position_ids,
-            image_aux_attention_masks_list=im_aux_attention_masks_list,
+            attention_mask_eng=new_attention_mask_eng,
+            position_ids_eng=new_position_ids_eng,
+            image_aux_attention_masks_list_eng=im_aux_attention_masks_list_eng,
+            attention_mask_rationale=new_attention_mask_rationale,
+            position_ids_rationale=new_position_ids_rationale,
+            image_aux_attention_masks_list_rationale=im_aux_attention_masks_list_rationale,
         )
         batch["image_sizes"] = image_sizes
         if "image_aux_list" in instances[0]:

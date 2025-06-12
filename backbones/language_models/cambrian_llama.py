@@ -273,7 +273,6 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
         self.pretraining_tp = config.pretraining_tp
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(config.hidden_size, config.vocab_size, bias=False)
-        self.cls_head = nn.Linear(config.hidden_size, config.num_labels, bias=False)
 
         # Initialize weights and apply final processing
         self.post_init()
@@ -290,8 +289,6 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
         past_key_values: Optional[List[torch.FloatTensor]] = None,
         inputs_embeds: Optional[torch.FloatTensor] = None,
         labels: Optional[torch.LongTensor] = None,
-        eng_classes: Optional[torch.LongTensor] = None,
-        cls_loss_weight: Optional[float] = None,
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
@@ -311,7 +308,6 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
         # -------- First call (prefill) -------------------------------
         if not incremental:
             assert inputs_embeds is None, "inputs_embeds should be None in prefill phase"
-            cls_pos = None
             (
                 input_ids,
                 position_ids,
@@ -319,7 +315,6 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
                 past_key_values,
                 inputs_embeds,
                 labels,
-                cls_pos,
                 vision_tower_aux_feature_list,
                 vision_tower_aux_attention_masks_list,
                 final_vision_feature_size,
@@ -334,8 +329,6 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
                 image_aux_attention_masks_list,
                 image_sizes,
             )
-            assert cls_pos is not None, "Batch CLS token positions not found" # => still die in this assertion !!!
-        # NOTE: cls_pos undefined in incremental mode – that’s fine.
 
         output_attentions = (
             output_attentions
@@ -371,34 +364,23 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
             # only the last position is new
             token_hidden = hidden_states[:, -1:, :]
             logits = self.lm_head(token_hidden).float()      # [bs,1,V]
-            cls_logits = None
         else:
-            assert hidden_states.shape[0] == len(cls_pos), f"Batch size of hidden states different from batch size of cls_pos"
             logits = self.lm_head(hidden_states).float()            # [bs,N,V]
-            # extract <cls> once
-            cls_states = hidden_states[torch.arange(hidden_states.size(0)), cls_pos]
-            assert cls_states.shape == (hidden_states.shape[0], hidden_states.shape[2]), f"Shape of cls_states different from shape of hidden_states"
-            cls_logits = self.cls_head(cls_states).float()   # [bs,3]
 
         # -------- Losses (train mode) -------------------------------
         loss = None
         if labels is not None:
-            ce = F.cross_entropy(
+            loss = F.cross_entropy(
                 logits[..., :-1, :].reshape(-1, self.config.vocab_size),
                 labels[..., 1:].reshape(-1)
             )
-            assert cls_logits is not None and eng_classes is not None, "cls_logits and eng_classes must not be None for classification loss signal"
-            assert cls_loss_weight is not None, "cls_loss_weight must not be None when tuning txt + cls"
-            cls_loss = F.cross_entropy(cls_logits, eng_classes)
-            loss = cls_loss_weight * cls_loss + (1. - cls_loss_weight) * ce
 
         if not return_dict:
-            return (loss, logits, cls_logits, labels) + outputs[1:]
+            return (loss, logits, labels) + outputs[1:]
 
         return CustomCausalLMOutputWithPast(
             loss=loss,
             logits=logits,
-            cls_logits=cls_logits,
             labels=labels,
             past_key_values=outputs.past_key_values,
             hidden_states=outputs.hidden_states,
@@ -425,7 +407,6 @@ class CambrianLlamaForCausalLM(LlamaForCausalLM, CambrianMetaForCausalLM):
                 attention_mask,
                 _,
                 inputs_embeds,
-                _,
                 _,
                 vision_tower_aux_feature_list,
                 vision_tower_aux_attention_masks_list,

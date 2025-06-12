@@ -7,6 +7,7 @@ import torch.distributed as dist
 from torch.distributed import init_process_group, destroy_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
+import torch.nn.functional as F
 
 import os
 import json
@@ -50,7 +51,7 @@ logging.basicConfig(
     format="%(asctime)s - %(filename)s:%(lineno)d - %(funcName)s - %(levelname)s - %(message)s"
 )
 
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:256"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
 
 GLOBAL_SEED = 1337
 torch.manual_seed(GLOBAL_SEED)
@@ -66,21 +67,21 @@ def forward_step(
     model_args,  
     tokenizer,
     eval_mode=False, 
-    cls_only=False,
-    cls_loss_weight=None,
-    gen_config_dict: Dict[str, Any]=None
-):
-    if gen_config_dict is not None and cls_only:
-        raise ValueError("gen_config_dict for text generation is not supported for cls_only")
-    # if gen_config_dict is not None and not eval_mode:
-    #     raise ValueError("gen_config_dict for text generation is only supported for eval_mode")
+    engagement_gen_config: Dict[str, Any]=None,
+    rationale_gen_config: Dict[str, Any]=None
+):  
+    input_ids_eng = batch["input_ids_eng"].to(device)
+    labels_eng = batch["labels_eng"].to(device)
+    attention_mask_eng = batch["attention_mask_eng"].to(device)
+    position_ids_eng = batch["position_ids_eng"].to(device)
+    image_aux_attention_masks_list_eng = [image_aux_attn_mask.to(device) for image_aux_attn_mask in batch["image_aux_attention_masks_list_eng"]]
     
-    input_ids = batch["input_ids"].to(device)
-    labels = batch["labels"].to(device)
-    eng_classes = batch["eng_classes"].to(device)
-    attention_mask = batch["attention_mask"].to(device)
-    position_ids = batch["position_ids"].to(device)
-    image_aux_attention_masks_list = [image_aux_attn_mask.to(device) for image_aux_attn_mask in batch["image_aux_attention_masks_list"]]
+    input_ids_rationale = batch["input_ids_rationale"].to(device)
+    labels_rationale = batch["labels_rationale"].to(device)
+    attention_mask_rationale = batch["attention_mask_rationale"].to(device)
+    position_ids_rationale = batch["position_ids_rationale"].to(device)
+    image_aux_attention_masks_list_rationale = [image_aux_attn_mask.to(device) for image_aux_attn_mask in batch["image_aux_attention_masks_list_rationale"]]
+    
     image_sizes = batch["image_sizes"]
     images = None
     if "images" in batch:
@@ -89,64 +90,48 @@ def forward_step(
             images = [[img.to(device) for img in imgs] for imgs in batch["images"]]
         else:
             images = [image.to(device) for image in batch["images"]]
-    if eval_mode:
-        outputs = model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-            position_ids=position_ids,
-            # labels=labels,
-            # eng_classes=eng_classes,
-            images=images,
-            image_aux_attention_masks_list=image_aux_attention_masks_list,
-            image_sizes=image_sizes,
-        )
-    else:
-        if cls_only:
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                # labels=labels,
-                eng_classes=eng_classes,
-                images=images,
-                image_aux_attention_masks_list=image_aux_attention_masks_list,
-                image_sizes=image_sizes,
-            )
-        else:
-            outputs = model(
-                input_ids=input_ids,
-                attention_mask=attention_mask,
-                position_ids=position_ids,
-                labels=labels,
-                eng_classes=eng_classes,
-                cls_loss_weight=cls_loss_weight,
-                images=images,
-                image_aux_attention_masks_list=image_aux_attention_masks_list,
-                image_sizes=image_sizes,
-            )
-    if not cls_only and gen_config_dict is not None:
-        # @tcm: add gen_config_dict to model.generate()
-        conv = conversation_lib.conv_templates[model_args.version].copy()
-        stop_str = conv.sep if conv.sep_style != conversation_lib.SeparatorStyle.TWO else conv.sep2
-        keywords = [stop_str]
-        stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
+    outputs = {}
+    labels_eng = labels_eng if not eval_mode else None
+    labels_rationale = labels_rationale if not eval_mode else None
+    outputs["engagement"] = model(
+        input_ids=input_ids_eng,
+        attention_mask=attention_mask_eng,
+        position_ids=position_ids_eng,
+        labels=labels_eng,
+        images=images,
+        image_aux_attention_masks_list=image_aux_attention_masks_list_eng,
+        image_sizes=image_sizes,
+    )
+    outputs["rationale"] = model(
+        input_ids=input_ids_rationale,
+        attention_mask=attention_mask_rationale,
+        position_ids=position_ids_rationale,
+        labels=labels_rationale,
+        images=images,
+        image_aux_attention_masks_list=image_aux_attention_masks_list_rationale,
+        image_sizes=image_sizes,
+    )
+    conv = conversation_lib.conv_templates[model_args.version].copy()
+    stop_str = conv.sep if conv.sep_style != conversation_lib.SeparatorStyle.TWO else conv.sep2
+    keywords = [stop_str]
+    if engagement_gen_config is not None:
+        stopping_criteria_eng = KeywordsStoppingCriteria(keywords, tokenizer, input_ids_eng)
         raw = model.module if hasattr(model, "module") else model
-        # attention_mask = ()
         with torch.inference_mode():
             was_training = raw.training
             if was_training:
                 raw.eval() # disable dropout and checkpointing (use_cache can be True)
             output_ids = raw.generate(
-                input_ids,
-                attention_mask=attention_mask,
+                input_ids_eng,
+                attention_mask=attention_mask_eng,
                 images=images,
                 image_sizes=image_sizes,
-                do_sample=gen_config_dict.get("do_sample", False),
-                temperature=gen_config_dict.get("temperature", 1.),
-                max_new_tokens=gen_config_dict.get("max_new_tokens", 128),
-                num_beams=gen_config_dict.get("num_beams", 3),
-                use_cache=gen_config_dict.get("use_cache", True),
-                stopping_criteria=[stopping_criteria],
+                do_sample=engagement_gen_config.get("do_sample", False),
+                temperature=engagement_gen_config.get("temperature", 1.),
+                max_new_tokens=engagement_gen_config.get("max_new_tokens", 128),
+                num_beams=engagement_gen_config.get("num_beams", 3),
+                use_cache=engagement_gen_config.get("use_cache", True),
+                stopping_criteria=[stopping_criteria_eng],
             )
             if was_training:
                 raw.train() # restore training mode
@@ -154,8 +139,33 @@ def forward_step(
         # eliminate starting "assistant" prefix if present
         if pred.startswith("assistant"):
             pred = pred[len("assistant"):].strip()
-        # log_rank0(f"In forward_step(): video_path: {batch['video_path']}, pred: {pred}")
-        outputs["preds"] = [pred]
+        outputs["engagement_preds"] = [pred]
+    if rationale_gen_config is not None:
+        stopping_criteria_rationale = KeywordsStoppingCriteria(keywords, tokenizer, input_ids_rationale)
+        raw = model.module if hasattr(model, "module") else model
+        with torch.inference_mode():
+            was_training = raw.training
+            if was_training:
+                raw.eval() # disable dropout and checkpointing (use_cache can be True)
+            output_ids = raw.generate(
+                input_ids_rationale,
+                attention_mask=attention_mask_rationale,
+                images=images,
+                image_sizes=image_sizes,
+                do_sample=rationale_gen_config.get("do_sample", False),
+                temperature=rationale_gen_config.get("temperature", 1.),
+                max_new_tokens=rationale_gen_config.get("max_new_tokens", 128),
+                num_beams=rationale_gen_config.get("num_beams", 3),
+                use_cache=rationale_gen_config.get("use_cache", True),
+                stopping_criteria=[stopping_criteria_rationale],
+            )
+            if was_training:
+                raw.train() # restore training mode
+        pred = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+        # eliminate starting "assistant" prefix if present
+        if pred.startswith("assistant"):
+            pred = pred[len("assistant"):].strip()
+        outputs["rationale_preds"] = [pred]
     return outputs
 
 def train():
@@ -197,15 +207,10 @@ def train():
     model_args.local_dir = model_args.output_model_filename
     # pyre-fixme[16]: `CambrianLlamaForCausalLM` has no attribute `from_pretrained`.
     
-    if model_args.cls_only:
-        model = CambrianLlamaForSequenceClassification.from_pretrained(
-            model_args.input_model_filename,
-        )
-    else:
-        model = CambrianLlamaForCausalLM.from_pretrained(
-            # pyre-fixme[16]: `DataClass` has no attribute `input_model_local_path`.
-            model_args.input_model_filename,
-        )
+    model = CambrianLlamaForCausalLM.from_pretrained(
+        # pyre-fixme[16]: `DataClass` has no attribute `input_model_local_path`.
+        model_args.input_model_filename,
+    )
     model.config.use_cache = False
     # pyre-fixme[16]: `DataClass` has no attribute `freeze_backbone`.
     if model_args.freeze_backbone:
@@ -305,16 +310,9 @@ def train():
             for name, param in model.named_parameters():
                 if any(listed_name in name for listed_name in tune_modules):
                     param.requires_grad = True
-        if model_args.tune_lm_head and not model_args.cls_only:
+        if model_args.tune_lm_head:
             for p in model.lm_head.parameters():
                 p.requires_grad = True
-        if model_args.tune_cls_head:
-            if not model_args.cls_only:
-                for p in model.cls_head.parameters():
-                    p.requires_grad = True
-            else:
-                for p in model.score.parameters():
-                    p.requires_grad = True
         if model_args.tune_embed_tokens:
             for p in model.get_input_embeddings().parameters():
                 p.requires_grad = True
@@ -514,20 +512,31 @@ def train():
                     batch, 
                     device, 
                     model_args, 
-                    tokenizer, 
-                    cls_only=model_args.cls_only,
-                    cls_loss_weight=training_args.cls_loss_weight,
+                    tokenizer,
+                    # @tcm: For the moment, I'll try examine the generated engagement on eval set first
+                    # engagement_gen_config={
+                    #     "do_sample": False,
+                    #     "max_new_tokens": 16,
+                    #     "num_beams": 1,
+                    #     "use_cache": True,
+                    # },
+                    rationale_gen_config={
+                        "do_sample": False,
+                        "max_new_tokens": 256,
+                        "num_beams": 1,
+                        "use_cache": True,
+                    } if training_args.generation_eval else None
                 )
-                cur_preds = torch.argmax(outputs.cls_logits, dim=-1)
-                train_device_preds.append(cur_preds)
-                train_device_gold_labels.append(train_labels)
-                loss = outputs.loss
+                # cur_preds = torch.argmax(outputs.cls_logits, dim=-1)
+                # train_device_preds.append(cur_preds)
+                # train_device_gold_labels.append(train_labels)
+                loss = 0.5 * outputs["engagement"].loss + 0.5 * outputs["rationale"].loss
                 loss = loss / gradient_accumulation_steps
                 train_loss_accum += loss.detach()
                 loss.backward()
             
             if is_last_micro:
-                #   Update weights every accum_steps mini-batches
+                # Update weights every accum_steps mini-batches
                 torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
                 global_steps += 1
                 if ddp:
@@ -576,21 +585,21 @@ def train():
                     do_eval = True
                 if do_eval:
                     # evaluate on the training fraction first
-                    train_perf_log = evaluate_perf(
-                        device_preds=train_device_preds,
-                        device_gold_labels=train_device_gold_labels,
-                        prefix="Train",
-                        predictions=None,
-                        references=None,
-                        epoch=epoch + (batch_idx+1) / len(train_dataloader),
-                        step=global_steps,
-                    )
-                    if train_perf_log is not None:
-                        # only on master process
-                        train_perf.append(train_perf_log)
-                        with open(train_perf_log_fpath, "w") as f:
-                            json_train_perf = [perf.to_dict() for perf in train_perf]
-                            json.dump(json_train_perf, f, indent=4)
+                    # train_perf_log = evaluate_perf(
+                    #     device_preds=train_device_preds,
+                    #     device_gold_labels=train_device_gold_labels,
+                    #     prefix="Train",
+                    #     predictions=None,
+                    #     references=None,
+                    #     epoch=epoch + (batch_idx+1) / len(train_dataloader),
+                    #     step=global_steps,
+                    # )
+                    # if train_perf_log is not None:
+                    #     # only on master process
+                    #     train_perf.append(train_perf_log)
+                    #     with open(train_perf_log_fpath, "w") as f:
+                    #         json_train_perf = [perf.to_dict() for perf in train_perf]
+                    #         json.dump(json_train_perf, f, indent=4)
 
                     if ddp:
                         dist.barrier() # wait for all processes to finish before evaluation
@@ -598,13 +607,15 @@ def train():
                     
                     eval_device_loss = 0.
                     eval_device_samples = 0
-                    eval_device_preds, eval_device_gold_labels = [], []
-                    eval_device_text_preds, eval_device_text_references = [], []
-                    eval_video_paths = []
+                    # eval_device_preds, eval_device_gold_labels = [], []
+                    # eval_device_text_preds, eval_device_text_references = [], []
+                    # eval_video_paths = []
+
+                    eval_engagement_preds = []
                     for eval_batch_idx, eval_batch in enumerate(eval_dataloader):
                         log_rank0(f'After epoch {epoch + 1}, eval batch {eval_batch_idx+1}/{len(eval_dataloader)}')
 
-                        eval_labels = eval_batch["eng_classes"].to(device)
+                        eval_label = int(eval_batch["eng_classes"][0])
 
                         with torch.no_grad():
                             outputs = forward_step(
@@ -614,27 +625,42 @@ def train():
                                 model_args, 
                                 tokenizer, 
                                 eval_mode=True, 
-                                cls_only=model_args.cls_only,
-                                cls_loss_weight=training_args.cls_loss_weight,
-                                gen_config_dict={
+                                engagement_gen_config={
+                                    "do_sample": False,
+                                    "max_new_tokens": 16,
+                                    "num_beams": 1,
+                                    "use_cache": True,
+                                },
+                                rationale_gen_config={
                                     "do_sample": False,
                                     "max_new_tokens": 256,
                                     "num_beams": 1,
                                     "use_cache": True,
                                 } if training_args.generation_eval else None
                             )
-                            eval_logits = outputs.cls_logits
-                            cur_preds = torch.argmax(eval_logits, dim=-1)
-                            eval_device_preds.append(cur_preds)
-                            eval_device_gold_labels.append(eval_labels)
-                            loss_fnc = torch.nn.CrossEntropyLoss()
-                            eval_loss = loss_fnc(eval_logits, eval_labels)
-                            eval_device_loss += eval_loss.item() * eval_labels.shape[0]
-                            eval_device_samples += eval_labels.shape[0]
-                            if training_args.generation_eval:
-                                eval_device_text_preds.extend(outputs["preds"])
-                                eval_device_text_references.extend(eval_batch["responses"])
-                            eval_video_paths.extend(eval_batch["video_paths"])
+                            eval_engagement_preds.append({
+                                "video_path": eval_batch["video_paths"][0],
+                                "engagement_pred": outputs["engagement_preds"][0],
+                                "gold_label": eval_label
+                            })
+                            # eval_logits = outputs.cls_logits
+                            # cur_preds = torch.argmax(eval_logits, dim=-1)
+                            # eval_device_preds.append(cur_preds)
+                            # eval_device_gold_labels.append(eval_labels)
+                            # loss_fnc = torch.nn.CrossEntropyLoss()
+                            # eval_loss = loss_fnc(eval_logits, eval_labels)
+                            # eval_device_loss += eval_loss.item() * eval_labels.shape[0]
+                            # eval_device_samples += eval_labels.shape[0]
+                            # if training_args.generation_eval:
+                            #     eval_device_text_preds.extend(outputs["preds"])
+                            #     eval_device_text_references.extend(eval_batch["responses"])
+                            # eval_video_paths.extend(eval_batch["video_paths"])
+
+                    all_engagement_preds = [None for _ in range(ddp_world_size)] if master_process else None
+                    dist.gather_object(eval_engagement_preds, all_engagement_preds, dst=0)
+                    if master_process:
+                        with open(eval_log_fpath, "w") as f:
+                            json.dump(all_engagement_preds[0], f, indent=4)
 
                     if master_process and training_args.generation_eval:
                         # logging.info(f"Eval video paths: {eval_video_paths}")
@@ -661,31 +687,31 @@ def train():
                     if training_args.generation_eval:
                         dist.gather_object(eval_device_text_preds, eval_gathered_preds, dst=0)
                         dist.gather_object(eval_device_text_references, eval_gathered_references, dst=0)
-                    if master_process and training_args.generation_eval:
-                        # flatten
-                        eval_gathered_preds = [pred for rank_preds in eval_gathered_preds for pred in rank_preds]
-                        eval_gathered_references = [ref for rank_refs in eval_gathered_references for ref in rank_refs]
-                    text_evaluators = {}
-                    if training_args.generation_eval:
-                        text_evaluators = {"bleu": bleu, "rouge": rouge, "meteor": meteor, "bertscore": bertscore}
-                    eval_perf_log = evaluate_perf(
-                        device_loss=eval_device_loss,
-                        device_samples=eval_device_samples,
-                        device_preds=eval_device_preds,
-                        device_gold_labels=eval_device_gold_labels,
-                        predictions=eval_gathered_preds if training_args.generation_eval else None,
-                        references=eval_gathered_references if training_args.generation_eval else None,
-                        prefix="Eval",
-                        epoch=epoch + (batch_idx+1) / len(train_dataloader),
-                        step=global_steps,
-                        **text_evaluators
-                    )
-                    if eval_perf_log is not None:
-                        # only on master process
-                        eval_perf.append(eval_perf_log)
-                        with open(eval_perf_log_fpath, "w") as f:
-                            json_eval_perf = [perf.to_dict() for perf in eval_perf]
-                            json.dump(json_eval_perf, f, indent=4)
+                    # if master_process and training_args.generation_eval:
+                    #     # flatten
+                    #     eval_gathered_preds = [pred for rank_preds in eval_gathered_preds for pred in rank_preds]
+                    #     eval_gathered_references = [ref for rank_refs in eval_gathered_references for ref in rank_refs]
+                    # text_evaluators = {}
+                    # if training_args.generation_eval:
+                    #     text_evaluators = {"bleu": bleu, "rouge": rouge, "meteor": meteor, "bertscore": bertscore}
+                    # eval_perf_log = evaluate_perf(
+                    #     device_loss=eval_device_loss,
+                    #     device_samples=eval_device_samples,
+                    #     device_preds=eval_device_preds,
+                    #     device_gold_labels=eval_device_gold_labels,
+                    #     predictions=eval_gathered_preds if training_args.generation_eval else None,
+                    #     references=eval_gathered_references if training_args.generation_eval else None,
+                    #     prefix="Eval",
+                    #     epoch=epoch + (batch_idx+1) / len(train_dataloader),
+                    #     step=global_steps,
+                    #     **text_evaluators
+                    # )
+                    # if eval_perf_log is not None:
+                    #     # only on master process
+                    #     eval_perf.append(eval_perf_log)
+                    #     with open(eval_perf_log_fpath, "w") as f:
+                    #         json_eval_perf = [perf.to_dict() for perf in eval_perf]
+                    #         json.dump(json_eval_perf, f, indent=4)
                     model.train()
     
                 do_save = False

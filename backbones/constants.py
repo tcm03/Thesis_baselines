@@ -12,3 +12,15 @@ DEFAULT_IMAGE_PATCH_TOKEN = "<im_patch>"
 DEFAULT_IM_START_TOKEN = "<im_start>"
 DEFAULT_IM_END_TOKEN = "<im_end>"
 IMAGE_PLACEHOLDER = "<image-placeholder>"
+
+engagement2int = {
+    "not engaged": 0,
+    "neutral": 1,
+    "engaged": 2,
+}
+
+int2engagement = {
+    0: "not engaged",
+    1: "neutral",
+    2: "engaged",
+}
