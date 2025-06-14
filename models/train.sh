@@ -3,14 +3,14 @@ PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
 TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_engcaption_image.json"
 EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_engcaption_image.json"
 
-OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_txt2txt_resume_again"
+OUTPUT_DIR="./checkpoints/txt2txt_rationale"
 
-CKPT_NAME="longvu_llama_snapugc0_txt2txt_resume_again"
+CKPT_NAME="txt2txt_rationale"
 PREV_STAGE_CHECKPOINT=""
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
 
-torchrun --nproc_per_node=2 --master_port=29505 models/train.py \
+torchrun --nproc_per_node=4 --master_port=29505 models/train.py \
   --output_dir $OUTPUT_DIR \
   --input_model_filename $MODEL_PATH \
   --output_model_filename $OUTPUT_DIR \
@@ -44,7 +44,7 @@ torchrun --nproc_per_node=2 --master_port=29505 models/train.py \
   --freeze_mm_mlp_adapter False \
   --freeze_backbone True \
   --gradient_checkpointing True \
-  --generation_eval False \
+  --generation_eval True \
   --mm_projector_type sva \
   --image_token_len 144 \
   --query_num_list "[144]" \
@@ -59,10 +59,10 @@ torchrun --nproc_per_node=2 --master_port=29505 models/train.py \
   --logging_steps 10 \
   --num_train_epochs 1 \
   --warmup_ratio 0.03 \
-  --learning_rate 1e-5 \
+  --learning_rate 3e-5 \
   --weight_decay 0. \
   --cls_loss_weight 0.5 \
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 1 \
-  --gradient_accumulation_steps 32 \
+  --gradient_accumulation_steps 16 \
   # --resume_from_checkpoint $PREV_STAGE_CHECKPOINT

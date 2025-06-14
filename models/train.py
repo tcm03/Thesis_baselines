@@ -93,15 +93,15 @@ def forward_step(
     outputs = {}
     labels_eng = labels_eng if not eval_mode else None
     labels_rationale = labels_rationale if not eval_mode else None
-    outputs["engagement"] = model(
-        input_ids=input_ids_eng,
-        attention_mask=attention_mask_eng,
-        position_ids=position_ids_eng,
-        labels=labels_eng,
-        images=images,
-        image_aux_attention_masks_list=image_aux_attention_masks_list_eng,
-        image_sizes=image_sizes,
-    )
+    # outputs["engagement"] = model(
+    #     input_ids=input_ids_eng,
+    #     attention_mask=attention_mask_eng,
+    #     position_ids=position_ids_eng,
+    #     labels=labels_eng,
+    #     images=images,
+    #     image_aux_attention_masks_list=image_aux_attention_masks_list_eng,
+    #     image_sizes=image_sizes,
+    # )
     outputs["rationale"] = model(
         input_ids=input_ids_rationale,
         attention_mask=attention_mask_rationale,
@@ -114,32 +114,32 @@ def forward_step(
     conv = conversation_lib.conv_templates[model_args.version].copy()
     stop_str = conv.sep if conv.sep_style != conversation_lib.SeparatorStyle.TWO else conv.sep2
     keywords = [stop_str]
-    if engagement_gen_config is not None:
-        stopping_criteria_eng = KeywordsStoppingCriteria(keywords, tokenizer, input_ids_eng)
-        raw = model.module if hasattr(model, "module") else model
-        with torch.inference_mode():
-            was_training = raw.training
-            if was_training:
-                raw.eval() # disable dropout and checkpointing (use_cache can be True)
-            output_ids = raw.generate(
-                input_ids_eng,
-                attention_mask=attention_mask_eng,
-                images=images,
-                image_sizes=image_sizes,
-                do_sample=engagement_gen_config.get("do_sample", False),
-                temperature=engagement_gen_config.get("temperature", 1.),
-                max_new_tokens=engagement_gen_config.get("max_new_tokens", 128),
-                num_beams=engagement_gen_config.get("num_beams", 3),
-                use_cache=engagement_gen_config.get("use_cache", True),
-                stopping_criteria=[stopping_criteria_eng],
-            )
-            if was_training:
-                raw.train() # restore training mode
-        pred = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
-        # eliminate starting "assistant" prefix if present
-        if pred.startswith("assistant"):
-            pred = pred[len("assistant"):].strip()
-        outputs["engagement_preds"] = [pred]
+    # if engagement_gen_config is not None:
+    #     stopping_criteria_eng = KeywordsStoppingCriteria(keywords, tokenizer, input_ids_eng)
+    #     raw = model.module if hasattr(model, "module") else model
+    #     with torch.inference_mode():
+    #         was_training = raw.training
+    #         if was_training:
+    #             raw.eval() # disable dropout and checkpointing (use_cache can be True)
+    #         output_ids = raw.generate(
+    #             input_ids_eng,
+    #             attention_mask=attention_mask_eng,
+    #             images=images,
+    #             image_sizes=image_sizes,
+    #             do_sample=engagement_gen_config.get("do_sample", False),
+    #             temperature=engagement_gen_config.get("temperature", 1.),
+    #             max_new_tokens=engagement_gen_config.get("max_new_tokens", 128),
+    #             num_beams=engagement_gen_config.get("num_beams", 3),
+    #             use_cache=engagement_gen_config.get("use_cache", True),
+    #             stopping_criteria=[stopping_criteria_eng],
+    #         )
+    #         if was_training:
+    #             raw.train() # restore training mode
+    #     pred = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+    #     # eliminate starting "assistant" prefix if present
+    #     if pred.startswith("assistant"):
+    #         pred = pred[len("assistant"):].strip()
+    #     outputs["engagement_preds"] = [pred]
     if rationale_gen_config is not None:
         stopping_criteria_rationale = KeywordsStoppingCriteria(keywords, tokenizer, input_ids_rationale)
         raw = model.module if hasattr(model, "module") else model
@@ -520,17 +520,18 @@ def train():
                     #     "num_beams": 1,
                     #     "use_cache": True,
                     # },
-                    rationale_gen_config={
-                        "do_sample": False,
-                        "max_new_tokens": 256,
-                        "num_beams": 1,
-                        "use_cache": True,
-                    } if training_args.generation_eval else None
+                    # rationale_gen_config={
+                    #     "do_sample": False,
+                    #     "max_new_tokens": 256,
+                    #     "num_beams": 1,
+                    #     "use_cache": True,
+                    # } if training_args.generation_eval else None
                 )
                 # cur_preds = torch.argmax(outputs.cls_logits, dim=-1)
                 # train_device_preds.append(cur_preds)
                 # train_device_gold_labels.append(train_labels)
-                loss = 0.5 * outputs["engagement"].loss + 0.5 * outputs["rationale"].loss # I predict the CUDA OOM error stems from here, where loss graphs of two forward passes are combined
+                # loss = 0.5 * outputs["engagement"].loss + 0.5 * outputs["rationale"].loss # I predict the CUDA OOM error stems from here, where loss graphs of two forward passes are combined
+                loss = outputs["rationale"].loss
                 loss = loss / gradient_accumulation_steps
                 train_loss_accum += loss.detach()
                 loss.backward()
@@ -625,12 +626,12 @@ def train():
                                 model_args, 
                                 tokenizer, 
                                 eval_mode=True, 
-                                engagement_gen_config={
-                                    "do_sample": False,
-                                    "max_new_tokens": 16,
-                                    "num_beams": 1,
-                                    "use_cache": True,
-                                },
+                                # engagement_gen_config={
+                                #     "do_sample": False,
+                                #     "max_new_tokens": 16,
+                                #     "num_beams": 1,
+                                #     "use_cache": True,
+                                # },
                                 rationale_gen_config={
                                     "do_sample": False,
                                     "max_new_tokens": 256,
@@ -640,7 +641,7 @@ def train():
                             )
                             eval_engagement_preds.append({
                                 "video_path": eval_batch["video_paths"][0],
-                                "engagement_pred": outputs["engagement_preds"][0],
+                                "rationale_pred": outputs["rationale_preds"][0],
                                 "gold_label": eval_label
                             })
                             # eval_logits = outputs.cls_logits
@@ -661,32 +662,34 @@ def train():
                     if master_process:
                         with open(eval_log_fpath, "w") as f:
                             json.dump(all_engagement_preds, f, indent=4)
+                    dist.barrier()
 
-                    if master_process and training_args.generation_eval:
-                        # logging.info(f"Eval video paths: {eval_video_paths}")
-                        # @tcm: At the moment, print out predicted label and generated text for each video in the eval set.
-                        assert len(eval_video_paths) == len(eval_device_text_preds) and len(eval_video_paths) == len(eval_device_preds), "need equal"
-                        eval_logs: List[EvalProgressLog] = []
-                        for video_path, cls_pred, gen_pred in zip(eval_video_paths, eval_device_preds, eval_device_text_preds):
-                            eval_logs.append(EvalProgressLog(
-                                epoch=epoch + (batch_idx+1) / len(train_dataloader),
-                                step=global_steps,
-                                video_path=video_path,
-                                cls_pred=cls_pred.item(),
-                                gen_pred=gen_pred
-                            ))
-                        cur_eval_log_fname = os.path.basename(eval_log_fpath).split(".")[0] + f"-epoch{epoch}-step{global_steps}.json"
-                        cur_eval_log_fdir = os.path.dirname(eval_log_fpath)
-                        cur_eval_log_fpath = os.path.join(cur_eval_log_fdir, cur_eval_log_fname)
-                        with open(cur_eval_log_fpath, "w") as f:
-                            json_eval_logs = [log.to_dict() for log in eval_logs]
-                            json.dump(json_eval_logs, f, indent=4)
+                    # if master_process and training_args.generation_eval:
+                    #     # logging.info(f"Eval video paths: {eval_video_paths}")
+                    #     # @tcm: At the moment, print out predicted label and generated text for each video in the eval set.
+                    #     assert len(eval_video_paths) == len(eval_device_text_preds) and len(eval_video_paths) == len(eval_device_preds), "need equal"
+                    #     eval_logs: List[EvalProgressLog] = []
+                    #     for video_path, cls_pred, gen_pred in zip(eval_video_paths, eval_device_preds, eval_device_text_preds):
+                    #         eval_logs.append(EvalProgressLog(
+                    #             epoch=epoch + (batch_idx+1) / len(train_dataloader),
+                    #             step=global_steps,
+                    #             video_path=video_path,
+                    #             cls_pred=cls_pred.item(),
+                    #             gen_pred=gen_pred
+                    #         ))
+                    #     cur_eval_log_fname = os.path.basename(eval_log_fpath).split(".")[0] + f"-epoch{epoch}-step{global_steps}.json"
+                    #     cur_eval_log_fdir = os.path.dirname(eval_log_fpath)
+                    #     cur_eval_log_fpath = os.path.join(cur_eval_log_fdir, cur_eval_log_fname)
+                    #     with open(cur_eval_log_fpath, "w") as f:
+                    #         json_eval_logs = [log.to_dict() for log in eval_logs]
+                    #         json.dump(json_eval_logs, f, indent=4)
 
-                    eval_gathered_preds = [None for _ in range(ddp_world_size)] if master_process else None
-                    eval_gathered_references = [None for _ in range(ddp_world_size)] if master_process else None
-                    if training_args.generation_eval:
-                        dist.gather_object(eval_device_text_preds, eval_gathered_preds, dst=0)
-                        dist.gather_object(eval_device_text_references, eval_gathered_references, dst=0)
+                    # @tcm: Open this when you need evaluate text matching metrics (bleu, rouge, bertscore, etc.)
+                    # eval_gathered_preds = [None for _ in range(ddp_world_size)] if master_process else None
+                    # eval_gathered_references = [None for _ in range(ddp_world_size)] if master_process else None
+                    # if training_args.generation_eval:
+                    #     dist.gather_object(eval_device_text_preds, eval_gathered_preds, dst=0)
+                    #     dist.gather_object(eval_device_text_references, eval_gathered_references, dst=0)
                     # if master_process and training_args.generation_eval:
                     #     # flatten
                     #     eval_gathered_preds = [pred for rank_preds in eval_gathered_preds for pred in rank_preds]
