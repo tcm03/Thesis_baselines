@@ -3,15 +3,15 @@ import os
 import matplotlib.pyplot as plt
 
 # Define the directory to save images
-output_dir = 'images/txtcls_w0.7'
+output_dir = 'images/txt_cls_2'
 os.makedirs(output_dir, exist_ok=True)
 
 # Load training performance data
-with open('checkpoints/longvu_llama_snapugc0_txtcls_w0.7/train_perf_txtcls_w0.7.json', 'r') as f:
+with open('checkpoints/txt_cls_2/train_perf_txt_cls_2.json', 'r') as f:
     train_data = json.load(f)
 
 # Load evaluation performance data
-with open('checkpoints/longvu_llama_snapugc0_txtcls_w0.7/eval_perf_txtcls_w0.7.json', 'r') as f:
+with open('checkpoints/txt_cls_2/eval_perf_txt_cls_2.json', 'r') as f:
     eval_data = json.load(f)
 
 # Extract epochs

@@ -3,14 +3,14 @@ PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
 TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_engcaption_cls.json"
 EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_engcaption_cls.json"
 
-OUTPUT_DIR="./checkpoints/longvu_llama_snapugc0_clsonly"
+OUTPUT_DIR="./checkpoints/clsonly_2"
 
-CKPT_NAME="longvu_llama_snapugc0_clsonly"
-PREV_STAGE_CHECKPOINT="./checkpoints/longvu_llama_snapugc0_txtcls_test0/longvu_llama_snapugc0_txtcls_test0-epoch0-step378.pt"
+CKPT_NAME="clsonly_2"
+# PREV_STAGE_CHECKPOINT="./checkpoints/longvu_llama_snapugc0_txtcls_test0/longvu_llama_snapugc0_txtcls_test0-epoch0-step378.pt"
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
 
-torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
+torchrun --nproc_per_node=4 --master_port=29504 models/train.py \
   --output_dir $OUTPUT_DIR \
   --input_model_filename $MODEL_PATH \
   --output_model_filename $OUTPUT_DIR \
@@ -18,10 +18,10 @@ torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
   --image_folders $PATH_TO_FOLDERS \
   --train_paths $TRAIN_PATHS \
   --eval_paths $EVAL_PATHS \
-  --train_log "train_log_clsonly.json" \
-  --train_perf_log "train_perf_clsonly.json" \
-  --eval_perf_log "eval_perf_clsonly.json" \
-  --eval_log "eval_log_clsonly.json" \
+  --train_log "train_log_clsonly_2.json" \
+  --train_perf_log "train_perf_clsonly_2.json" \
+  --eval_perf_log "eval_perf_clsonly_2.json" \
+  --eval_log "eval_log_clsonly_2.json" \
   --model_max_length 8192 \
   --fp16 False \
   --bf16 True \
