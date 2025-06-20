@@ -13,7 +13,6 @@ class ModelArguments:
     freeze_backbone: bool = field(default=False)
     tune_mm_mlp_adapter: bool = field(default=False)
     tune_lm_head: bool = field(default=False)
-    cls_only: bool = field(default=False)
     tune_embed_tokens: bool = field(default=False)
     vision_tower: Optional[str] = field(default=None)
     mm_vision_select_layer: Optional[int] = field(
@@ -148,7 +147,6 @@ class CustomTrainingArguments(transformers.TrainingArguments):
     train_perf_log: Optional[str] = field(default=None)
     eval_perf_log: Optional[str] = field(default=None)
     eval_log: Optional[str] = field(default=None)
-    cls_loss_weight: Optional[float] = field(default=0.5)
     generation_eval: bool = field(default=False)
 
 # @dataclass

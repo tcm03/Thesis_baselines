@@ -51,7 +51,7 @@ logging.basicConfig(
     format="%(asctime)s - %(filename)s:%(lineno)d - %(funcName)s - %(levelname)s - %(message)s"
 )
 
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
+os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:256"
 
 GLOBAL_SEED = 1337
 torch.manual_seed(GLOBAL_SEED)
@@ -67,20 +67,13 @@ def forward_step(
     model_args,  
     tokenizer,
     eval_mode=False, 
-    engagement_gen_config: Dict[str, Any]=None,
-    rationale_gen_config: Dict[str, Any]=None
+    gen_config_dict: Dict[str, Any]=None
 ):  
-    input_ids_eng = batch["input_ids_eng"].to(device)
-    labels_eng = batch["labels_eng"].to(device)
-    attention_mask_eng = batch["attention_mask_eng"].to(device)
-    position_ids_eng = batch["position_ids_eng"].to(device)
-    image_aux_attention_masks_list_eng = [image_aux_attn_mask.to(device) for image_aux_attn_mask in batch["image_aux_attention_masks_list_eng"]]
-    
-    input_ids_rationale = batch["input_ids_rationale"].to(device)
-    labels_rationale = batch["labels_rationale"].to(device)
-    attention_mask_rationale = batch["attention_mask_rationale"].to(device)
-    position_ids_rationale = batch["position_ids_rationale"].to(device)
-    image_aux_attention_masks_list_rationale = [image_aux_attn_mask.to(device) for image_aux_attn_mask in batch["image_aux_attention_masks_list_rationale"]]
+    input_ids = batch["input_ids"].to(device)
+    labels = batch["labels"].to(device)
+    attention_mask = batch["attention_mask"].to(device)
+    position_ids = batch["position_ids"].to(device)
+    image_aux_attention_masks_list = [image_aux_attn_mask.to(device) for image_aux_attn_mask in batch["image_aux_attention_masks_list"]]
     
     image_sizes = batch["image_sizes"]
     images = None
@@ -90,48 +83,50 @@ def forward_step(
             images = [[img.to(device) for img in imgs] for imgs in batch["images"]]
         else:
             images = [image.to(device) for image in batch["images"]]
-    outputs = {}
-    labels_eng = labels_eng if not eval_mode else None
-    labels_rationale = labels_rationale if not eval_mode else None
-    outputs["engagement"] = model(
-        input_ids=input_ids_eng,
-        attention_mask=attention_mask_eng,
-        position_ids=position_ids_eng,
-        labels=labels_eng,
-        images=images,
-        image_aux_attention_masks_list=image_aux_attention_masks_list_eng,
-        image_sizes=image_sizes,
-    )
-    outputs["rationale"] = model(
-        input_ids=input_ids_rationale,
-        attention_mask=attention_mask_rationale,
-        position_ids=position_ids_rationale,
-        labels=labels_rationale,
-        images=images,
-        image_aux_attention_masks_list=image_aux_attention_masks_list_rationale,
-        image_sizes=image_sizes,
-    )
+    
+    if eval_mode:
+        outputs = model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            # labels=labels,
+            # eng_classes=eng_classes,
+            images=images,
+            image_aux_attention_masks_list=image_aux_attention_masks_list,
+            image_sizes=image_sizes,
+        )
+    else:
+        outputs = model(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            labels=labels,
+            images=images,
+            image_aux_attention_masks_list=image_aux_attention_masks_list,
+            image_sizes=image_sizes
+        )
+
     conv = conversation_lib.conv_templates[model_args.version].copy()
     stop_str = conv.sep if conv.sep_style != conversation_lib.SeparatorStyle.TWO else conv.sep2
     keywords = [stop_str]
-    if engagement_gen_config is not None:
-        stopping_criteria_eng = KeywordsStoppingCriteria(keywords, tokenizer, input_ids_eng)
+    if gen_config_dict is not None:
+        stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
         raw = model.module if hasattr(model, "module") else model
         with torch.inference_mode():
             was_training = raw.training
             if was_training:
                 raw.eval() # disable dropout and checkpointing (use_cache can be True)
             output_ids = raw.generate(
-                input_ids_eng,
-                attention_mask=attention_mask_eng,
+                input_ids,
+                attention_mask=attention_mask,
                 images=images,
                 image_sizes=image_sizes,
-                do_sample=engagement_gen_config.get("do_sample", False),
-                temperature=engagement_gen_config.get("temperature", 1.),
-                max_new_tokens=engagement_gen_config.get("max_new_tokens", 128),
-                num_beams=engagement_gen_config.get("num_beams", 3),
-                use_cache=engagement_gen_config.get("use_cache", True),
-                stopping_criteria=[stopping_criteria_eng],
+                do_sample=gen_config_dict.get("do_sample", False),
+                temperature=gen_config_dict.get("temperature", 1.),
+                max_new_tokens=gen_config_dict.get("max_new_tokens", 128),
+                num_beams=gen_config_dict.get("num_beams", 1),
+                use_cache=gen_config_dict.get("use_cache", True),
+                stopping_criteria=[stopping_criteria],
             )
             if was_training:
                 raw.train() # restore training mode
@@ -139,33 +134,8 @@ def forward_step(
         # eliminate starting "assistant" prefix if present
         if pred.startswith("assistant"):
             pred = pred[len("assistant"):].strip()
-        outputs["engagement_preds"] = [pred]
-    if rationale_gen_config is not None:
-        stopping_criteria_rationale = KeywordsStoppingCriteria(keywords, tokenizer, input_ids_rationale)
-        raw = model.module if hasattr(model, "module") else model
-        with torch.inference_mode():
-            was_training = raw.training
-            if was_training:
-                raw.eval() # disable dropout and checkpointing (use_cache can be True)
-            output_ids = raw.generate(
-                input_ids_rationale,
-                attention_mask=attention_mask_rationale,
-                images=images,
-                image_sizes=image_sizes,
-                do_sample=rationale_gen_config.get("do_sample", False),
-                temperature=rationale_gen_config.get("temperature", 1.),
-                max_new_tokens=rationale_gen_config.get("max_new_tokens", 128),
-                num_beams=rationale_gen_config.get("num_beams", 3),
-                use_cache=rationale_gen_config.get("use_cache", True),
-                stopping_criteria=[stopping_criteria_rationale],
-            )
-            if was_training:
-                raw.train() # restore training mode
-        pred = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
-        # eliminate starting "assistant" prefix if present
-        if pred.startswith("assistant"):
-            pred = pred[len("assistant"):].strip()
-        outputs["rationale_preds"] = [pred]
+        outputs["preds"] = [pred]
+    
     return outputs
 
 def train():
@@ -513,24 +483,14 @@ def train():
                     device, 
                     model_args, 
                     tokenizer,
-                    # @tcm: For the moment, I'll try examine the generated engagement on eval set first
-                    # engagement_gen_config={
-                    #     "do_sample": False,
-                    #     "max_new_tokens": 16,
-                    #     "num_beams": 1,
-                    #     "use_cache": True,
-                    # },
-                    rationale_gen_config={
+                    gen_config_dict={
                         "do_sample": False,
                         "max_new_tokens": 256,
                         "num_beams": 1,
                         "use_cache": True,
-                    } if training_args.generation_eval else None
+                    } # if training_args.generation_eval else None
                 )
-                # cur_preds = torch.argmax(outputs.cls_logits, dim=-1)
-                # train_device_preds.append(cur_preds)
-                # train_device_gold_labels.append(train_labels)
-                loss = 0.5 * outputs["engagement"].loss + 0.5 * outputs["rationale"].loss # I predict the CUDA OOM error stems from here, where loss graphs of two forward passes are combined
+                loss = outputs.loss
                 loss = loss / gradient_accumulation_steps
                 train_loss_accum += loss.detach()
                 loss.backward()
@@ -611,7 +571,7 @@ def train():
                     # eval_device_text_preds, eval_device_text_references = [], []
                     # eval_video_paths = []
 
-                    eval_engagement_preds = []
+                    eval_preds = []
                     for eval_batch_idx, eval_batch in enumerate(eval_dataloader):
                         log_rank0(f'After epoch {epoch + 1}, eval batch {eval_batch_idx+1}/{len(eval_dataloader)}')
 
@@ -625,22 +585,16 @@ def train():
                                 model_args, 
                                 tokenizer, 
                                 eval_mode=True, 
-                                engagement_gen_config={
-                                    "do_sample": False,
-                                    "max_new_tokens": 16,
-                                    "num_beams": 1,
-                                    "use_cache": True,
-                                },
-                                rationale_gen_config={
+                                gen_config_dict={
                                     "do_sample": False,
                                     "max_new_tokens": 256,
                                     "num_beams": 1,
                                     "use_cache": True,
-                                } if training_args.generation_eval else None
+                                } # if training_args.generation_eval else None
                             )
-                            eval_engagement_preds.append({
+                            eval_preds.append({
                                 "video_path": eval_batch["video_paths"][0],
-                                "engagement_pred": outputs["engagement_preds"][0],
+                                "pred": outputs["preds"][0],
                                 "gold_label": eval_label
                             })
                             # eval_logits = outputs.cls_logits
@@ -656,11 +610,11 @@ def train():
                             #     eval_device_text_references.extend(eval_batch["responses"])
                             # eval_video_paths.extend(eval_batch["video_paths"])
 
-                    all_engagement_preds = [None for _ in range(ddp_world_size)] if master_process else None
-                    dist.gather_object(eval_engagement_preds, all_engagement_preds, dst=0)
+                    all_preds = [None for _ in range(ddp_world_size)] if master_process else None
+                    dist.gather_object(eval_preds, all_preds, dst=0)
                     if master_process:
                         with open(eval_log_fpath, "w") as f:
-                            json.dump(all_engagement_preds, f, indent=4)
+                            json.dump(all_preds, f, indent=4)
 
                     if master_process and training_args.generation_eval:
                         # logging.info(f"Eval video paths: {eval_video_paths}")

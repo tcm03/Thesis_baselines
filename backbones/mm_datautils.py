@@ -22,7 +22,6 @@ from backbones.constants import (
     DEFAULT_IMAGE_TOKEN,
     IGNORE_INDEX,
     IMAGE_TOKEN_INDEX,
-    int2engagement,
 )
 
 # pyre-fixme[21]: Could not find module `decord`.
@@ -713,7 +712,6 @@ def preprocess_qwen(
 def preprocess_llama3(
     # pyre-fixme[2]: Parameter must be annotated.
     sources,
-    eng_labels,
     tokenizer: transformers.PreTrainedTokenizer,
     has_image: bool = False,
     system_message: str = "You are a helpful assistant.",
@@ -721,7 +719,6 @@ def preprocess_llama3(
     # pyre-fixme[24]: Generic type `dict` expects 2 type parameters, use
     #  `typing.Dict[<key type>, <value type>]` to avoid runtime subscripting errors.
 ) -> Dict:
-    assert len(sources) == len(eng_labels), f"len(sources) = {len(sources)}, len(eng_labels) = {len(eng_labels)}"
     # roles = {"human": "<|start_header_id|>user<|end_header_id|>", "gpt": "<|start_header_id|>assistant<|end_header_id|>"}
     roles = {"human": "user", "gpt": "assistant"}
 
@@ -769,22 +766,15 @@ def preprocess_llama3(
     for i, source in enumerate(sources):
         if roles[source[0]["from"]] != roles["human"]:
             source = source[1:]
-        eng_label = eng_labels[i]
 
-        input_id_label, target_label = [], []
-        input_id_rational, target_rational = [], []
-
+        input_id, target = [], []
         # New version, use apply chat template
         # Build system message for each sentence
-        system_ids = tokenizer.apply_chat_template(
+        input_id += tokenizer.apply_chat_template(
             [{"role": "system", "content": system_message}]
             # pyre-fixme[6]: For 1st argument expected `Union[int, str]` but got `slice`.
         )[:-4]
-        input_id_label += system_ids
-        target_label += [IGNORE_INDEX] * len(system_ids)
-
-        input_id_rational += system_ids
-        target_rational += [IGNORE_INDEX] * len(system_ids)
+        target += [IGNORE_INDEX] * len(input_id)
 
         for conv in source:
             # Make sure llava data can load
@@ -796,60 +786,38 @@ def preprocess_llama3(
                 content = conv["value"]
 
             if role == "gpt" and eval_mode:
+                # don't include response during evaluation
                 continue
 
-            if role == "human":
-                label_content = "[label] " + content
-                rationale_content = "[rationale] " + content
-                
-                role = roles.get(role, role)
+            role = roles.get(role, role)
 
-                conv_label = [{"role": role, "content": label_content}]
-                conv_rationale = [{"role": role, "content": rationale_content}]
-                encode_id_label = tokenizer.apply_chat_template(conv_label)[1:-4]
-                encode_id_rationale = tokenizer.apply_chat_template(conv_rationale)[1:-4]
-                input_id_label += encode_id_label
-                input_id_rational += encode_id_rationale
-                target_label += [IGNORE_INDEX] * len(encode_id_label)
-                target_rational += [IGNORE_INDEX] * len(encode_id_rationale)
+            conv = [{"role": role, "content": content}]
+            # First is bos token we don't need here
+            # pyre-fixme[6]: For 1st argument expected `Union[int, str]` but got
+            #  `slice`.
+            encode_id = tokenizer.apply_chat_template(conv)[1:-4]
+            input_id += encode_id
+            if role in ["user", "system"]:
+                target += [IGNORE_INDEX] * len(encode_id)
             else:
-                role = roles.get(role, role)
-                conv_rationale = [{"role": role, "content": content}]
-                encode_id_rationale = tokenizer.apply_chat_template(conv_rationale)[1:-4]
-                input_id_rational += encode_id_rationale
-                target_rational += encode_id_rationale
-
-                eng_text = int2engagement[int(eng_label)]
-                conv_label = [{"role": role, "content": eng_text}]
-                encode_id_label = tokenizer.apply_chat_template(conv_label)[1:-4]
-                input_id_label += encode_id_label
-                target_label += encode_id_label
-
-        assert len(input_id_label) == len(target_label), f"{len(input_id_label)} != {len(target_label)}"
-        assert len(input_id_rational) == len(target_rational), f"{len(input_id_rational)} != {len(target_rational)}"
-        for idx, encode_id in enumerate(input_id_label):
-            if encode_id in unmask_tokens_idx:
-                target_label[idx] = encode_id
-            if encode_id == image_token_index:
-                input_id_label[idx] = IMAGE_TOKEN_INDEX
+                target += encode_id
+        assert len(input_id) == len(target), f"invalid: {len(input_id)} != {len(target)}"
         
-        for idx, encode_id in enumerate(input_id_rational):
+        for idx, encode_id in enumerate(input_id):
             if encode_id in unmask_tokens_idx:
-                target_rational[idx] = encode_id
+                target[idx] = encode_id
             if encode_id == image_token_index:
-                input_id_rational[idx] = IMAGE_TOKEN_INDEX
+                input_id[idx] = IMAGE_TOKEN_INDEX
         
-        input_ids.append(input_id_label)
-        input_ids.append(input_id_rational)
-        targets.append(target_label)
-        targets.append(target_rational)
-    # @tcm: Since now we prepare two input_ids for [label] and [rationale], they're of different lengths
-    # input_ids = torch.tensor(input_ids, dtype=torch.long)
-    # targets = torch.tensor(targets, dtype=torch.long)
+        input_ids.append(input_id)
+        targets.append(target)
+
+    input_ids = torch.tensor(input_ids, dtype=torch.long)
+    targets = torch.tensor(targets, dtype=torch.long)
 
     return dict(
-        input_ids=input_ids,  # List[input_ids_label, input_ids_rationale]
-        labels=targets,  # List[target_label, target_rational]
+        input_ids=input_ids,  # tensor(bs x seq_len)Add commentMore actions
+        labels=targets,  # tensor(bs x seq_len)
     )
 
 
@@ -1323,7 +1291,6 @@ def preprocess_plain(
 
 def preprocess(
     sources: Sequence[str],
-    eng_labels: Sequence[str],
     tokenizer: transformers.PreTrainedTokenizer,
     has_image: bool = False,
     eval_mode: bool = False,
@@ -1352,7 +1319,7 @@ def preprocess(
     if conversation_lib.default_conversation.version == "mpt":
         return preprocess_mpt(sources, tokenizer, has_image=has_image)
     if conversation_lib.default_conversation.version == "llama3":
-        return preprocess_llama3(sources, eng_labels, tokenizer, has_image=has_image, eval_mode=eval_mode)
+        return preprocess_llama3(sources, tokenizer, has_image=has_image, eval_mode=eval_mode)
     if conversation_lib.default_conversation.version == "llama3_1":
         return preprocess_llama_3_1(sources, tokenizer, has_image=has_image)
     if conversation_lib.default_conversation.version == "llama3_2":
