@@ -93,71 +93,45 @@ def forward_step(
     outputs = {}
     labels_eng = labels_eng if not eval_mode else None
     labels_rationale = labels_rationale if not eval_mode else None
-    # outputs["engagement"] = model(
-    #     input_ids=input_ids_eng,
-    #     attention_mask=attention_mask_eng,
-    #     position_ids=position_ids_eng,
-    #     labels=labels_eng,
-    #     images=images,
-    #     image_aux_attention_masks_list=image_aux_attention_masks_list_eng,
-    #     image_sizes=image_sizes,
-    # )
-    outputs["rationale"] = model(
-        input_ids=input_ids_rationale,
-        attention_mask=attention_mask_rationale,
-        position_ids=position_ids_rationale,
-        labels=labels_rationale,
+    outputs["engagement"] = model(
+        input_ids=input_ids_eng,
+        attention_mask=attention_mask_eng,
+        position_ids=position_ids_eng,
+        labels=labels_eng,
         images=images,
-        image_aux_attention_masks_list=image_aux_attention_masks_list_rationale,
+        image_aux_attention_masks_list=image_aux_attention_masks_list_eng,
         image_sizes=image_sizes,
     )
+    # outputs["rationale"] = model(
+    #     input_ids=input_ids_rationale,
+    #     attention_mask=attention_mask_rationale,
+    #     position_ids=position_ids_rationale,
+    #     labels=labels_rationale,
+    #     images=images,
+    #     image_aux_attention_masks_list=image_aux_attention_masks_list_rationale,
+    #     image_sizes=image_sizes,
+    # )
     conv = conversation_lib.conv_templates[model_args.version].copy()
     stop_str = conv.sep if conv.sep_style != conversation_lib.SeparatorStyle.TWO else conv.sep2
     keywords = [stop_str]
-    # if engagement_gen_config is not None:
-    #     stopping_criteria_eng = KeywordsStoppingCriteria(keywords, tokenizer, input_ids_eng)
-    #     raw = model.module if hasattr(model, "module") else model
-    #     with torch.inference_mode():
-    #         was_training = raw.training
-    #         if was_training:
-    #             raw.eval() # disable dropout and checkpointing (use_cache can be True)
-    #         output_ids = raw.generate(
-    #             input_ids_eng,
-    #             attention_mask=attention_mask_eng,
-    #             images=images,
-    #             image_sizes=image_sizes,
-    #             do_sample=engagement_gen_config.get("do_sample", False),
-    #             temperature=engagement_gen_config.get("temperature", 1.),
-    #             max_new_tokens=engagement_gen_config.get("max_new_tokens", 128),
-    #             num_beams=engagement_gen_config.get("num_beams", 3),
-    #             use_cache=engagement_gen_config.get("use_cache", True),
-    #             stopping_criteria=[stopping_criteria_eng],
-    #         )
-    #         if was_training:
-    #             raw.train() # restore training mode
-    #     pred = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
-    #     # eliminate starting "assistant" prefix if present
-    #     if pred.startswith("assistant"):
-    #         pred = pred[len("assistant"):].strip()
-    #     outputs["engagement_preds"] = [pred]
-    if rationale_gen_config is not None:
-        stopping_criteria_rationale = KeywordsStoppingCriteria(keywords, tokenizer, input_ids_rationale)
+    if engagement_gen_config is not None:
+        stopping_criteria_eng = KeywordsStoppingCriteria(keywords, tokenizer, input_ids_eng)
         raw = model.module if hasattr(model, "module") else model
         with torch.inference_mode():
             was_training = raw.training
             if was_training:
                 raw.eval() # disable dropout and checkpointing (use_cache can be True)
             output_ids = raw.generate(
-                input_ids_rationale,
-                attention_mask=attention_mask_rationale,
+                input_ids_eng,
+                attention_mask=attention_mask_eng,
                 images=images,
                 image_sizes=image_sizes,
-                do_sample=rationale_gen_config.get("do_sample", False),
-                temperature=rationale_gen_config.get("temperature", 1.),
-                max_new_tokens=rationale_gen_config.get("max_new_tokens", 128),
-                num_beams=rationale_gen_config.get("num_beams", 3),
-                use_cache=rationale_gen_config.get("use_cache", True),
-                stopping_criteria=[stopping_criteria_rationale],
+                do_sample=engagement_gen_config.get("do_sample", False),
+                temperature=engagement_gen_config.get("temperature", 1.),
+                max_new_tokens=engagement_gen_config.get("max_new_tokens", 128),
+                num_beams=engagement_gen_config.get("num_beams", 3),
+                use_cache=engagement_gen_config.get("use_cache", True),
+                stopping_criteria=[stopping_criteria_eng],
             )
             if was_training:
                 raw.train() # restore training mode
@@ -165,7 +139,33 @@ def forward_step(
         # eliminate starting "assistant" prefix if present
         if pred.startswith("assistant"):
             pred = pred[len("assistant"):].strip()
-        outputs["rationale_preds"] = [pred]
+        outputs["engagement_preds"] = [pred]
+    # if rationale_gen_config is not None:
+    #     stopping_criteria_rationale = KeywordsStoppingCriteria(keywords, tokenizer, input_ids_rationale)
+    #     raw = model.module if hasattr(model, "module") else model
+    #     with torch.inference_mode():
+    #         was_training = raw.training
+    #         if was_training:
+    #             raw.eval() # disable dropout and checkpointing (use_cache can be True)
+    #         output_ids = raw.generate(
+    #             input_ids_rationale,
+    #             attention_mask=attention_mask_rationale,
+    #             images=images,
+    #             image_sizes=image_sizes,
+    #             do_sample=rationale_gen_config.get("do_sample", False),
+    #             temperature=rationale_gen_config.get("temperature", 1.),
+    #             max_new_tokens=rationale_gen_config.get("max_new_tokens", 128),
+    #             num_beams=rationale_gen_config.get("num_beams", 3),
+    #             use_cache=rationale_gen_config.get("use_cache", True),
+    #             stopping_criteria=[stopping_criteria_rationale],
+    #         )
+    #         if was_training:
+    #             raw.train() # restore training mode
+    #     pred = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
+    #     # eliminate starting "assistant" prefix if present
+    #     if pred.startswith("assistant"):
+    #         pred = pred[len("assistant"):].strip()
+    #     outputs["rationale_preds"] = [pred]
     return outputs
 
 def train():
@@ -531,7 +531,8 @@ def train():
                 # train_device_preds.append(cur_preds)
                 # train_device_gold_labels.append(train_labels)
                 # loss = 0.5 * outputs["engagement"].loss + 0.5 * outputs["rationale"].loss # I predict the CUDA OOM error stems from here, where loss graphs of two forward passes are combined
-                loss = outputs["rationale"].loss
+                # loss = outputs["rationale"].loss
+                loss = outputs["engagement"].loss
                 loss = loss / gradient_accumulation_steps
                 train_loss_accum += loss.detach()
                 loss.backward()
@@ -626,22 +627,22 @@ def train():
                                 model_args, 
                                 tokenizer, 
                                 eval_mode=True, 
-                                # engagement_gen_config={
-                                #     "do_sample": False,
-                                #     "max_new_tokens": 16,
-                                #     "num_beams": 1,
-                                #     "use_cache": True,
-                                # },
-                                rationale_gen_config={
+                                engagement_gen_config={
                                     "do_sample": False,
-                                    "max_new_tokens": 256,
+                                    "max_new_tokens": 16,
                                     "num_beams": 1,
                                     "use_cache": True,
-                                } if training_args.generation_eval else None
+                                },
+                                # rationale_gen_config={
+                                #     "do_sample": False,
+                                #     "max_new_tokens": 256,
+                                #     "num_beams": 1,
+                                #     "use_cache": True,
+                                # } if training_args.generation_eval else None
                             )
                             eval_engagement_preds.append({
                                 "video_path": eval_batch["video_paths"][0],
-                                "rationale_pred": outputs["rationale_preds"][0],
+                                "engagement_pred": outputs["engagement_preds"][0],
                                 "gold_label": eval_label
                             })
                             # eval_logits = outputs.cls_logits

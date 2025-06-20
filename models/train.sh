@@ -3,9 +3,9 @@ PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
 TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_engcaption_image.json"
 EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_engcaption_image.json"
 
-OUTPUT_DIR="./checkpoints/txt2txt_rationale"
+OUTPUT_DIR="./checkpoints/txt2txt_engagement"
 
-CKPT_NAME="txt2txt_rationale"
+CKPT_NAME="txt2txt_engagement"
 PREV_STAGE_CHECKPOINT=""
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
@@ -21,7 +21,7 @@ torchrun --nproc_per_node=4 --master_port=29505 models/train.py \
   --train_log "train_log.json" \
   --train_perf_log "train_perf.json" \
   --eval_perf_log "eval_perf.json" \
-  --eval_log "eval_log.json" \
+  --eval_log "eval_log_engagement.json" \
   --model_max_length 8192 \
   --fp16 False \
   --bf16 True \
@@ -57,7 +57,7 @@ torchrun --nproc_per_node=4 --master_port=29505 models/train.py \
   --save_strategy "epoch" \
   --save_steps 189 \
   --logging_steps 10 \
-  --num_train_epochs 1 \
+  --num_train_epochs 2 \
   --warmup_ratio 0.03 \
   --learning_rate 3e-5 \
   --weight_decay 0. \
