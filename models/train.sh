@@ -1,7 +1,7 @@
 #!/bin/bash
 PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
-TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_nano_train_label_rationale.json"
-EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_nano_val_label_rationale.json"
+TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_label_rationale.json"
+EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_label_rationale.json"
 
 OUTPUT_DIR="./checkpoints/txt2txt_label_rationale"
 
@@ -10,7 +10,7 @@ PREV_STAGE_CHECKPOINT=""
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
 
-torchrun --nproc_per_node=4 --master_port=29505 models/train.py \
+torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
   --output_dir $OUTPUT_DIR \
   --input_model_filename $MODEL_PATH \
   --output_model_filename $OUTPUT_DIR \
