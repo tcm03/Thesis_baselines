@@ -210,6 +210,7 @@ def train():
     tokenizer.pad_token = "<|reserved_special_token_0|>"
     tokenizer.pad_token_id = 128002
     model.config.pad_token_id = tokenizer.pad_token_id # prevent warning "Setting pad_token_id to eos_token_id:128001 for open-end generation." during generating
+    model.generation_config.pad_token_id = tokenizer.pad_token_id  # future-proof
     conversation_lib.default_conversation = conversation_lib.conv_templates[
         model_args.version
     ]
