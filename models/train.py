@@ -613,7 +613,10 @@ def train():
                     all_preds = [None for _ in range(ddp_world_size)] if master_process else None
                     dist.gather_object(eval_preds, all_preds, dst=0)
                     if master_process:
-                        with open(eval_log_fpath, "w") as f:
+                        cur_eval_log_fname = os.path.basename(eval_log_fpath).split(".")[0] + f"-epoch{epoch}-step{global_steps}.json"
+                        cur_eval_log_fdir = os.path.dirname(eval_log_fpath)
+                        cur_eval_log_fpath = os.path.join(cur_eval_log_fdir, cur_eval_log_fname)
+                        with open(cur_eval_log_fpath, "w") as f:
                             json.dump(all_preds, f, indent=4)
 
                     if master_process and training_args.generation_eval:

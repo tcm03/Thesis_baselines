@@ -512,6 +512,9 @@ class DataCollatorForSupervisedDataset(object):
         input_ids, labels = tuple(
             [instance[key] for instance in instances] for key in ("input_ids", "labels")
         )
+        eng_classes = tuple(
+            [instance["eng_class"] for instance in instances]
+        )
         responses = tuple(
             [instance["response"] for instance in instances]
         )
@@ -575,6 +578,7 @@ class DataCollatorForSupervisedDataset(object):
 
         input_ids = torch.stack(input_ids)
         labels = torch.stack(labels)
+        eng_classes = torch.tensor(eng_classes)
         attention_mask = input_ids.ne(self.tokenizer.pad_token_id)  # pyre-fixme
         # @tcm: insert dummy image to tokenized text input_ids if there is none
         for i in range(len(input_ids)):

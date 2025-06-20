@@ -1,7 +1,7 @@
 #!/bin/bash
 PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
-TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_label_rationale.json"
-EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_label_rationale.json"
+TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_nano_train_label_rationale.json"
+EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_nano_val_label_rationale.json"
 
 OUTPUT_DIR="./checkpoints/txt2txt_label_rationale"
 
@@ -52,13 +52,13 @@ torchrun --nproc_per_node=4 --master_port=29505 models/train.py \
   --highres True \
   --drop_threshold 0.8 \
   --eval_strategy "steps" \
-  --eval_steps 76 \
+  --eval_steps 151 \
   --save_strategy "epoch" \
-  --save_steps 189 \
-  --logging_steps 10 \
-  --num_train_epochs 1 \
+  --save_steps 379 \
+  --logging_steps 20 \
+  --num_train_epochs 2 \
   --warmup_ratio 0.03 \
-  --learning_rate 1e-5 \
+  --learning_rate 3e-5 \
   --weight_decay 0. \
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 1 \
