@@ -10,7 +10,7 @@ PREV_STAGE_CHECKPOINT=""
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
 
-torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
+NCCL_ASYNC_ERROR_HANDLING=1 NCCL_DEBUG=INFO torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
   --output_dir $OUTPUT_DIR \
   --input_model_filename $MODEL_PATH \
   --output_model_filename $OUTPUT_DIR \

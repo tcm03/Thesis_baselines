@@ -9,6 +9,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data.distributed import DistributedSampler
 import torch.nn.functional as F
 
+import datetime
 import os
 import json
 from contextlib import nullcontext
@@ -121,6 +122,7 @@ def forward_step(
                 attention_mask=attention_mask,
                 images=images,
                 image_sizes=image_sizes,
+                top_p=None,
                 do_sample=gen_config_dict.get("do_sample", False),
                 temperature=gen_config_dict.get("temperature", 1.),
                 max_new_tokens=gen_config_dict.get("max_new_tokens", 128),
@@ -142,7 +144,7 @@ def train():
     
     if ddp:
         assert torch.cuda.is_available(), "Distributed training requires CUDA"
-        init_process_group(backend="nccl")
+        init_process_group(backend="nccl", timeout=datetime.timedelta(hours=8)) # prevent premature crashes due to rank progress difference (when hit barrier)
         ddp_rank = int(os.environ["RANK"])
         ddp_local_rank = int(os.environ["LOCAL_RANK"])
         ddp_world_size = int(os.environ["WORLD_SIZE"])
@@ -613,6 +615,8 @@ def train():
                             # eval_video_paths.extend(eval_batch["video_paths"])
 
                     all_preds = [None for _ in range(ddp_world_size)] if master_process else None
+                    if ddp:
+                        dist.barrier() # wait for every rank to finish its last eval batch
                     dist.gather_object(eval_preds, all_preds, dst=0)
                     if master_process:
                         cur_eval_log_fname = os.path.basename(eval_log_fpath).split(".")[0] + f"-epoch{epoch}-step{global_steps}.json"
