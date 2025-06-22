@@ -515,17 +515,10 @@ def train():
                         loss=train_loss_accum.item(),
                         grad_norm=total_norm,
                         learning_rate=optimizer.param_groups[0]["lr"],
-                        # @tcm: At the moment, stop printing out predicted label and text for last video in the batch at logging steps because of longer training
-                        # video_path=batch["video_paths"][0],
-                        # cls_pred=cur_preds.item(),
-                        # gen_pred=outputs["preds"][0] if training_args.generation_eval else None
                     ))
                     with open(train_log_fpath, "w") as f:
                         json_train_logs = [log.to_dict() for log in train_logs]
                         json.dump(json_train_logs, f, indent=4)
-                    # for param_group in optimizer.param_groups:
-                    #     cur_lr = param_group["lr"]
-                    #     logging.info(f'lr: {cur_lr:.10f}')
                 
                 # zero out grads for all original tokens, keep <cls> trainable
                 with torch.no_grad():
@@ -548,36 +541,17 @@ def train():
                 if epoch == num_epochs - 1 and batch_idx == len(train_dataloader) - 1:
                     do_eval = True
                 if do_eval:
-                    # evaluate on the training fraction first
-                    # train_perf_log = evaluate_perf(
-                    #     device_preds=train_device_preds,
-                    #     device_gold_labels=train_device_gold_labels,
-                    #     prefix="Train",
-                    #     predictions=None,
-                    #     references=None,
-                    #     epoch=epoch + (batch_idx+1) / len(train_dataloader),
-                    #     step=global_steps,
-                    # )
-                    # if train_perf_log is not None:
-                    #     # only on master process
-                    #     train_perf.append(train_perf_log)
-                    #     with open(train_perf_log_fpath, "w") as f:
-                    #         json_train_perf = [perf.to_dict() for perf in train_perf]
-                    #         json.dump(json_train_perf, f, indent=4)
-
                     if ddp:
                         dist.barrier() # wait for all processes to finish before evaluation
                     model.eval()
                     
                     eval_device_loss = 0.
                     eval_device_samples = 0
-                    # eval_device_preds, eval_device_gold_labels = [], []
-                    # eval_device_text_preds, eval_device_text_references = [], []
-                    # eval_video_paths = []
 
                     eval_preds = []
                     for eval_batch_idx, eval_batch in enumerate(eval_dataloader):
-                        log_rank0(f'After epoch {epoch + 1}, eval batch {eval_batch_idx+1}/{len(eval_dataloader)}')
+                        # log_rank0(f'After epoch {epoch + 1}, eval batch {eval_batch_idx+1}/{len(eval_dataloader)}')
+                        logging.info(f"[DBG rank {ddp_rank}] start inference on video {eval_batch_idx}/{len(eval_dataloader)}: {eval_batch['video_paths'][0]}")
 
                         eval_label = int(eval_batch["eng_classes"][0])
 
@@ -596,25 +570,15 @@ def train():
                                     "use_cache": True,
                                 } # if training_args.generation_eval else None
                             )
+                            logging.info(f"[DBG rank {ddp_rank}] done inference on video {eval_batch_idx}/{len(eval_dataloader)}: {eval_batch['video_paths'][0]}")
                             eval_preds.append({
                                 "video_path": eval_batch["video_paths"][0],
                                 "pred": outputs["preds"][0],
                                 "gold_label": eval_label
                             })
-                            # eval_logits = outputs.cls_logits
-                            # cur_preds = torch.argmax(eval_logits, dim=-1)
-                            # eval_device_preds.append(cur_preds)
-                            # eval_device_gold_labels.append(eval_labels)
-                            # loss_fnc = torch.nn.CrossEntropyLoss()
-                            # eval_loss = loss_fnc(eval_logits, eval_labels)
-                            # eval_device_loss += eval_loss.item() * eval_labels.shape[0]
-                            # eval_device_samples += eval_labels.shape[0]
-                            # if training_args.generation_eval:
-                            #     eval_device_text_preds.extend(outputs["preds"])
-                            #     eval_device_text_references.extend(eval_batch["responses"])
-                            # eval_video_paths.extend(eval_batch["video_paths"])
 
                     all_preds = [None for _ in range(ddp_world_size)] if master_process else None
+                    logging.info(f"[DBG rank {ddp_rank}] DONE INFERENCE, PREPARE GATHERING")
                     if ddp:
                         dist.barrier() # wait for every rank to finish its last eval batch
                     dist.gather_object(eval_preds, all_preds, dst=0)
@@ -650,31 +614,6 @@ def train():
                     if training_args.generation_eval:
                         dist.gather_object(eval_device_text_preds, eval_gathered_preds, dst=0)
                         dist.gather_object(eval_device_text_references, eval_gathered_references, dst=0)
-                    # if master_process and training_args.generation_eval:
-                    #     # flatten
-                    #     eval_gathered_preds = [pred for rank_preds in eval_gathered_preds for pred in rank_preds]
-                    #     eval_gathered_references = [ref for rank_refs in eval_gathered_references for ref in rank_refs]
-                    # text_evaluators = {}
-                    # if training_args.generation_eval:
-                    #     text_evaluators = {"bleu": bleu, "rouge": rouge, "meteor": meteor, "bertscore": bertscore}
-                    # eval_perf_log = evaluate_perf(
-                    #     device_loss=eval_device_loss,
-                    #     device_samples=eval_device_samples,
-                    #     device_preds=eval_device_preds,
-                    #     device_gold_labels=eval_device_gold_labels,
-                    #     predictions=eval_gathered_preds if training_args.generation_eval else None,
-                    #     references=eval_gathered_references if training_args.generation_eval else None,
-                    #     prefix="Eval",
-                    #     epoch=epoch + (batch_idx+1) / len(train_dataloader),
-                    #     step=global_steps,
-                    #     **text_evaluators
-                    # )
-                    # if eval_perf_log is not None:
-                    #     # only on master process
-                    #     eval_perf.append(eval_perf_log)
-                    #     with open(eval_perf_log_fpath, "w") as f:
-                    #         json_eval_perf = [perf.to_dict() for perf in eval_perf]
-                    #         json.dump(json_eval_perf, f, indent=4)
                     model.train()
     
                 do_save = False
@@ -714,6 +653,4 @@ def train():
         destroy_process_group()
 
 if __name__ == "__main__":
-    # os.makedirs(SAFETENSORS_PATH, exist_ok=True)
-    # mp.set_start_method('spawn')
     train()

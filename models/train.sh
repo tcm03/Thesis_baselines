@@ -1,16 +1,16 @@
 #!/bin/bash
 PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
-TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_label_rationale.json"
+TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_nano_train_label_rationale.json"
 EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_label_rationale.json"
 
-OUTPUT_DIR="./checkpoints/txt2txt_label_rationale"
+OUTPUT_DIR="./checkpoints/test_label_rationale"
 
-CKPT_NAME="txt2txt_label_rationale"
+CKPT_NAME="test_label_rationale"
 PREV_STAGE_CHECKPOINT=""
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
 
-NCCL_ASYNC_ERROR_HANDLING=1 NCCL_DEBUG=INFO torchrun --nproc_per_node=4 --master_port=29503 models/train.py \
+NCCL_ASYNC_ERROR_HANDLING=1 NCCL_DEBUG=INFO torchrun --nproc_per_node=2 --master_port=29504 models/train.py \
   --output_dir $OUTPUT_DIR \
   --input_model_filename $MODEL_PATH \
   --output_model_filename $OUTPUT_DIR \
@@ -51,7 +51,7 @@ NCCL_ASYNC_ERROR_HANDLING=1 NCCL_DEBUG=INFO torchrun --nproc_per_node=4 --master
   --video_fps 1 \
   --highres True \
   --drop_threshold 0.8 \
-  --eval_strategy "steps" \
+  --eval_strategy "epoch" \
   --eval_steps 151 \
   --save_strategy "epoch" \
   --save_steps 379 \
@@ -62,5 +62,5 @@ NCCL_ASYNC_ERROR_HANDLING=1 NCCL_DEBUG=INFO torchrun --nproc_per_node=4 --master
   --weight_decay 0. \
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 1 \
-  --gradient_accumulation_steps 16 \
+  --gradient_accumulation_steps 32 \
   # --resume_from_checkpoint $PREV_STAGE_CHECKPOINT
