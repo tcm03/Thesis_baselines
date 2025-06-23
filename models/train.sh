@@ -3,14 +3,14 @@ PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
 TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_engcaption_image.json"
 EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_engcaption_image.json"
 
-OUTPUT_DIR="./checkpoints/txt2txt_engagement"
+OUTPUT_DIR="./checkpoints/txt2txt_label_rationale_balance_again"
 
-CKPT_NAME="txt2txt_engagement"
+CKPT_NAME="txt2txt_label_rationale_balance_again"
 PREV_STAGE_CHECKPOINT=""
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
 
-torchrun --nproc_per_node=4 --master_port=29505 models/train.py \
+torchrun --nproc_per_node=4 --master_port=29506 models/train.py \
   --output_dir $OUTPUT_DIR \
   --input_model_filename $MODEL_PATH \
   --output_model_filename $OUTPUT_DIR \
@@ -21,7 +21,7 @@ torchrun --nproc_per_node=4 --master_port=29505 models/train.py \
   --train_log "train_log.json" \
   --train_perf_log "train_perf.json" \
   --eval_perf_log "eval_perf.json" \
-  --eval_log "eval_log_engagement.json" \
+  --eval_log "eval_log.json" \
   --model_max_length 8192 \
   --fp16 False \
   --bf16 True \
@@ -44,7 +44,7 @@ torchrun --nproc_per_node=4 --master_port=29505 models/train.py \
   --freeze_mm_mlp_adapter False \
   --freeze_backbone True \
   --gradient_checkpointing True \
-  --generation_eval True \
+  --generation_eval False \
   --mm_projector_type sva \
   --image_token_len 144 \
   --query_num_list "[144]" \
@@ -53,9 +53,9 @@ torchrun --nproc_per_node=4 --master_port=29505 models/train.py \
   --highres True \
   --drop_threshold 0.8 \
   --eval_strategy "steps" \
-  --eval_steps 76 \
-  --save_strategy "epoch" \
-  --save_steps 189 \
+  --eval_steps 151 \
+  --save_strategy "steps" \
+  --save_steps 379 \
   --logging_steps 10 \
   --num_train_epochs 2 \
   --warmup_ratio 0.03 \
@@ -64,5 +64,5 @@ torchrun --nproc_per_node=4 --master_port=29505 models/train.py \
   --cls_loss_weight 0.5 \
   --per_device_train_batch_size 1 \
   --per_device_eval_batch_size 1 \
-  --gradient_accumulation_steps 16 \
+  --gradient_accumulation_steps 8 \
   # --resume_from_checkpoint $PREV_STAGE_CHECKPOINT

@@ -67,20 +67,13 @@ def forward_step(
     model_args,  
     tokenizer,
     eval_mode=False, 
-    engagement_gen_config: Dict[str, Any]=None,
-    rationale_gen_config: Dict[str, Any]=None
+    gen_config_dict: Dict[str, Any]=None,
 ):  
-    input_ids_eng = batch["input_ids_eng"].to(device)
-    labels_eng = batch["labels_eng"].to(device)
-    attention_mask_eng = batch["attention_mask_eng"].to(device)
-    position_ids_eng = batch["position_ids_eng"].to(device)
-    image_aux_attention_masks_list_eng = [image_aux_attn_mask.to(device) for image_aux_attn_mask in batch["image_aux_attention_masks_list_eng"]]
-    
-    input_ids_rationale = batch["input_ids_rationale"].to(device)
-    labels_rationale = batch["labels_rationale"].to(device)
-    attention_mask_rationale = batch["attention_mask_rationale"].to(device)
-    position_ids_rationale = batch["position_ids_rationale"].to(device)
-    image_aux_attention_masks_list_rationale = [image_aux_attn_mask.to(device) for image_aux_attn_mask in batch["image_aux_attention_masks_list_rationale"]]
+    input_ids = batch["input_ids"].to(device)
+    labels = batch["labels"].to(device)
+    attention_mask = batch["attention_mask"].to(device)
+    position_ids = batch["position_ids"].to(device)
+    image_aux_attention_masks_list = [image_aux_attn_mask.to(device) for image_aux_attn_mask in batch["image_aux_attention_masks_list"]]
     
     image_sizes = batch["image_sizes"]
     images = None
@@ -90,48 +83,40 @@ def forward_step(
             images = [[img.to(device) for img in imgs] for imgs in batch["images"]]
         else:
             images = [image.to(device) for image in batch["images"]]
+    labels = labels if not eval_mode else None
     outputs = {}
-    labels_eng = labels_eng if not eval_mode else None
-    labels_rationale = labels_rationale if not eval_mode else None
-    outputs["engagement"] = model(
-        input_ids=input_ids_eng,
-        attention_mask=attention_mask_eng,
-        position_ids=position_ids_eng,
-        labels=labels_eng,
+    outputs["model_outputs"] = model(
+        input_ids=input_ids,
+        attention_mask=attention_mask,
+        position_ids=position_ids,
+        labels=labels,
         images=images,
-        image_aux_attention_masks_list=image_aux_attention_masks_list_eng,
+        image_aux_attention_masks_list=image_aux_attention_masks_list,
         image_sizes=image_sizes,
     )
-    # outputs["rationale"] = model(
-    #     input_ids=input_ids_rationale,
-    #     attention_mask=attention_mask_rationale,
-    #     position_ids=position_ids_rationale,
-    #     labels=labels_rationale,
-    #     images=images,
-    #     image_aux_attention_masks_list=image_aux_attention_masks_list_rationale,
-    #     image_sizes=image_sizes,
-    # )
+    
     conv = conversation_lib.conv_templates[model_args.version].copy()
     stop_str = conv.sep if conv.sep_style != conversation_lib.SeparatorStyle.TWO else conv.sep2
     keywords = [stop_str]
-    if engagement_gen_config is not None:
-        stopping_criteria_eng = KeywordsStoppingCriteria(keywords, tokenizer, input_ids_eng)
+    if gen_config_dict is not None:
+        stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
         raw = model.module if hasattr(model, "module") else model
         with torch.inference_mode():
             was_training = raw.training
             if was_training:
                 raw.eval() # disable dropout and checkpointing (use_cache can be True)
             output_ids = raw.generate(
-                input_ids_eng,
-                attention_mask=attention_mask_eng,
+                input_ids,
+                attention_mask=attention_mask,
                 images=images,
                 image_sizes=image_sizes,
-                do_sample=engagement_gen_config.get("do_sample", False),
-                temperature=engagement_gen_config.get("temperature", 1.),
-                max_new_tokens=engagement_gen_config.get("max_new_tokens", 128),
-                num_beams=engagement_gen_config.get("num_beams", 3),
-                use_cache=engagement_gen_config.get("use_cache", True),
-                stopping_criteria=[stopping_criteria_eng],
+                top_p=None if not gen_config_dict.get("do_sample", False) else 0.9,
+                do_sample=gen_config_dict.get("do_sample", False),
+                temperature=gen_config_dict.get("temperature", 1.),
+                max_new_tokens=gen_config_dict.get("max_new_tokens", 128),
+                num_beams=gen_config_dict.get("num_beams", 3),
+                use_cache=gen_config_dict.get("use_cache", True),
+                stopping_criteria=[stopping_criteria],
             )
             if was_training:
                 raw.train() # restore training mode
@@ -139,33 +124,7 @@ def forward_step(
         # eliminate starting "assistant" prefix if present
         if pred.startswith("assistant"):
             pred = pred[len("assistant"):].strip()
-        outputs["engagement_preds"] = [pred]
-    # if rationale_gen_config is not None:
-    #     stopping_criteria_rationale = KeywordsStoppingCriteria(keywords, tokenizer, input_ids_rationale)
-    #     raw = model.module if hasattr(model, "module") else model
-    #     with torch.inference_mode():
-    #         was_training = raw.training
-    #         if was_training:
-    #             raw.eval() # disable dropout and checkpointing (use_cache can be True)
-    #         output_ids = raw.generate(
-    #             input_ids_rationale,
-    #             attention_mask=attention_mask_rationale,
-    #             images=images,
-    #             image_sizes=image_sizes,
-    #             do_sample=rationale_gen_config.get("do_sample", False),
-    #             temperature=rationale_gen_config.get("temperature", 1.),
-    #             max_new_tokens=rationale_gen_config.get("max_new_tokens", 128),
-    #             num_beams=rationale_gen_config.get("num_beams", 3),
-    #             use_cache=rationale_gen_config.get("use_cache", True),
-    #             stopping_criteria=[stopping_criteria_rationale],
-    #         )
-    #         if was_training:
-    #             raw.train() # restore training mode
-    #     pred = tokenizer.batch_decode(output_ids, skip_special_tokens=True)[0].strip()
-    #     # eliminate starting "assistant" prefix if present
-    #     if pred.startswith("assistant"):
-    #         pred = pred[len("assistant"):].strip()
-    #     outputs["rationale_preds"] = [pred]
+        outputs["preds"] = [pred]
     return outputs
 
 def train():
@@ -239,6 +198,8 @@ def train():
     )
     tokenizer.pad_token = "<|reserved_special_token_0|>"
     tokenizer.pad_token_id = 128002
+    model.config.pad_token_id = tokenizer.pad_token_id
+    model.generation_config.pad_token_id = tokenizer.pad_token_id
     conversation_lib.default_conversation = conversation_lib.conv_templates[
         model_args.version
     ]
@@ -506,36 +467,62 @@ def train():
             # DDP: skip gradient synchronisation on all but final micro-step
             ddp_context = model.no_sync() if (ddp and not is_last_micro) else nullcontext()
             train_labels = batch["eng_classes"].to(device)
+            batch_eng = {
+                "input_ids": batch["input_ids_eng"],
+                "attention_mask": batch["attention_mask_eng"],
+                "position_ids": batch["position_ids_eng"],
+                "labels": batch["labels_eng"],
+                "images": batch["images"],
+                "image_aux_attention_masks_list": batch["image_aux_attention_masks_list_eng"],
+                "image_sizes": batch["image_sizes"],
+            }
+            batch_rationale = {
+                "input_ids": batch["input_ids_rationale"],
+                "attention_mask": batch["attention_mask_rationale"],
+                "position_ids": batch["position_ids_rationale"],
+                "labels": batch["labels_rationale"],
+                "images": batch["images"],
+                "image_aux_attention_masks_list": batch["image_aux_attention_masks_list_rationale"],
+                "image_sizes": batch["image_sizes"],
+            }
             with ddp_context:
-                outputs = forward_step(
+                outputs_eng = forward_step(
                     model, 
-                    batch, 
+                    batch_eng, 
                     device, 
                     model_args, 
                     tokenizer,
-                    # @tcm: For the moment, I'll try examine the generated engagement on eval set first
-                    # engagement_gen_config={
-                    #     "do_sample": False,
-                    #     "max_new_tokens": 16,
-                    #     "num_beams": 1,
-                    #     "use_cache": True,
-                    # },
-                    # rationale_gen_config={
-                    #     "do_sample": False,
-                    #     "max_new_tokens": 256,
-                    #     "num_beams": 1,
-                    #     "use_cache": True,
-                    # } if training_args.generation_eval else None
+                    gen_config_dict={
+                        "do_sample": False,
+                        "max_new_tokens": 256,
+                        "num_beams": 1,
+                        "use_cache": True,
+                    } if training_args.generation_eval else None
                 )
-                # cur_preds = torch.argmax(outputs.cls_logits, dim=-1)
-                # train_device_preds.append(cur_preds)
-                # train_device_gold_labels.append(train_labels)
                 # loss = 0.5 * outputs["engagement"].loss + 0.5 * outputs["rationale"].loss # I predict the CUDA OOM error stems from here, where loss graphs of two forward passes are combined
-                # loss = outputs["rationale"].loss
-                loss = outputs["engagement"].loss
-                loss = loss / gradient_accumulation_steps
-                train_loss_accum += loss.detach()
-                loss.backward()
+                lbd = training_args.cls_loss_weight
+                loss_eng = outputs_eng["model_outputs"].loss
+                loss_eng = lbd * loss_eng / (2. * gradient_accumulation_steps)
+                train_loss_accum += loss_eng.detach()
+                loss_eng.backward()
+                
+                outputs_rationale = forward_step(
+                    model, 
+                    batch_rationale, 
+                    device, 
+                    model_args, 
+                    tokenizer,
+                    gen_config_dict={
+                        "do_sample": False,
+                        "max_new_tokens": 256,
+                        "num_beams": 1,
+                        "use_cache": True,
+                    } if training_args.generation_eval else None
+                )
+                loss_rationale = outputs_rationale["model_outputs"].loss
+                loss_rationale = (1. - lbd) * loss_rationale / (2. * gradient_accumulation_steps)
+                train_loss_accum += loss_rationale.detach()
+                loss_rationale.backward()
             
             if is_last_micro:
                 # Update weights every accum_steps mini-batches
@@ -618,31 +605,33 @@ def train():
                         log_rank0(f'After epoch {epoch + 1}, eval batch {eval_batch_idx+1}/{len(eval_dataloader)}')
 
                         eval_label = int(eval_batch["eng_classes"][0])
-
+                        eval_batch_eng = {
+                            "input_ids": eval_batch["input_ids_eng"],
+                            "attention_mask": eval_batch["attention_mask_eng"],
+                            "position_ids": eval_batch["position_ids_eng"],
+                            "labels": eval_batch["labels_eng"],
+                            "images": eval_batch["images"],
+                            "image_aux_attention_masks_list": eval_batch["image_aux_attention_masks_list_eng"],
+                            "image_sizes": eval_batch["image_sizes"],
+                        }
                         with torch.no_grad():
                             outputs = forward_step(
                                 model, 
-                                eval_batch, 
+                                eval_batch_eng, 
                                 device, 
                                 model_args, 
                                 tokenizer, 
                                 eval_mode=True, 
-                                engagement_gen_config={
+                                gen_config_dict={
                                     "do_sample": False,
                                     "max_new_tokens": 16,
                                     "num_beams": 1,
                                     "use_cache": True,
                                 },
-                                # rationale_gen_config={
-                                #     "do_sample": False,
-                                #     "max_new_tokens": 256,
-                                #     "num_beams": 1,
-                                #     "use_cache": True,
-                                # } if training_args.generation_eval else None
                             )
                             eval_engagement_preds.append({
                                 "video_path": eval_batch["video_paths"][0],
-                                "engagement_pred": outputs["engagement_preds"][0],
+                                "engagement_pred": outputs["preds"][0],
                                 "gold_label": eval_label
                             })
                             # eval_logits = outputs.cls_logits
@@ -661,9 +650,11 @@ def train():
                     all_engagement_preds = [None for _ in range(ddp_world_size)] if master_process else None
                     dist.gather_object(eval_engagement_preds, all_engagement_preds, dst=0)
                     if master_process:
-                        with open(eval_log_fpath, "w") as f:
+                        cur_eval_log_fname = os.path.basename(eval_log_fpath).split(".")[0] + f"-epoch{epoch}-step{global_steps}.json"
+                        cur_eval_log_fdir = os.path.dirname(eval_log_fpath)
+                        cur_eval_log_fpath = os.path.join(cur_eval_log_fdir, cur_eval_log_fname)
+                        with open(cur_eval_log_fpath, "w") as f:
                             json.dump(all_engagement_preds, f, indent=4)
-                    dist.barrier()
 
                     # if master_process and training_args.generation_eval:
                     #     # logging.info(f"Eval video paths: {eval_video_paths}")
