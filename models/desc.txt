@@ -1,0 +1,7 @@
+This is the txt2txt_label_rationale_seq_balance branch.
+What it means is to implement training with both label and rationale, where each batch contains the same number of label 
+examples as number of rationale examples. It's implemented by appending [label] and [rationale] prefixes on each original 
+example in the json metadata (snapugc0_train_engcaption_image.json) in the data preparation process before loading.
+In the training loop body, I do two consecutive forward passes for engagement and rationale prediction in each iteration. 
+The loss for each accumulates throughout the mini-batch before stepping.
+This implementation causes CUDA OOM on a cluster of 4 x A100 SXM4 40GB on step 3143 or 3144/6074 of rank 0.
