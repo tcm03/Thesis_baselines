@@ -39,6 +39,7 @@ def save_checkpoint(path: str,
                     epoch_seed: int,
                     ):
     master_process = dist.get_rank() == 0
+    log_rank0(f"Rank {dist.get_rank()} saving checkpoint to {path}")
     if master_process:
         os.makedirs(os.path.dirname(path), exist_ok=True)
     raw = model.module if hasattr(model, "module") else model
@@ -68,7 +69,7 @@ def save_checkpoint(path: str,
             "epoch_seed": epoch_seed,
         }, path)
         log_rank0(f"Checkpoint saved to {path}")
-    dist.barrier()
+    # dist.barrier() # if only the master rank enters this function, the barrier will block all ranks
 
 # ---------- LOAD ----------
 def load_checkpoint(path: str,

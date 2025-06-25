@@ -22,7 +22,7 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 # import annotation.utils (which imports decord) after torch to avoid bug
 import torch.multiprocessing as mp
 from resource_logging import measure_resource_usage, MeasureResourceUsage
-import evaluate
+# import evaluate
 
 from models.hf_arguments import *
 from backbones.language_models.cambrian_llama import CambrianLlamaForCausalLM, CambrianLlamaForSequenceClassification
@@ -440,11 +440,11 @@ def train():
     train_logs: List[TrainProgressLog] = []
     train_perf: List[PerfMetrics] = []
     eval_perf: List[PerfMetrics] = []
-    if training_args.generation_eval:
-        bleu = evaluate.load("bleu")
-        rouge = evaluate.load("rouge")
-        meteor = evaluate.load("meteor")
-        bertscore = evaluate.load("bertscore")
+    # if training_args.generation_eval:
+    #     bleu = evaluate.load("bleu")
+    #     rouge = evaluate.load("rouge")
+    #     meteor = evaluate.load("meteor")
+    #     bertscore = evaluate.load("bertscore")
     best_eval_perf = 0.
 
     log_rank0("Starting training")
@@ -663,23 +663,25 @@ def train():
                             #     eval_device_text_preds.extend(outputs["preds"])
                             #     eval_device_text_references.extend(eval_batch["responses"])
                             # eval_video_paths.extend(eval_batch["video_paths"])
-
                     all_engagement_preds = [None for _ in range(ddp_world_size)] if master_process else None
                     all_preds = [None for _ in range(ddp_world_size)] if master_process else None
                     all_gold_labels = [None for _ in range(ddp_world_size)] if master_process else None
                     dist.gather_object(eval_engagement_preds, all_engagement_preds, dst=0)
                     dist.gather_object(eval_device_preds, all_preds, dst=0)
                     dist.gather_object(eval_device_gold_labels, all_gold_labels, dst=0)
-                    if training_args.save_best:
-                        all_preds = flatten_list(all_preds)
-                        all_gold_labels = flatten_list(all_gold_labels)
-                        cur_eval_perf = save_evaluate_perf(all_gold_labels, all_preds)
-                        cur_eval = 0.5 * (cur_eval_perf["accuracy"] + cur_eval_perf["f1"]["weighted"])
-                        if cur_eval >= best_eval_perf:
-                            best_eval_perf = cur_eval
-                            checkpoint_name = f'{model_args.checkpoint_fname}-epoch{epoch}-step{global_steps}.pt'
-                            do_save = True
                     if master_process:
+                        if training_args.save_best:
+                            all_preds = flatten_list(all_preds)
+                            all_gold_labels = flatten_list(all_gold_labels)
+                            log_rank0(f"ep{epoch}-step{global_steps}: all_gold_labels: {all_gold_labels}, all_preds: {all_preds}")
+                            cur_eval_perf = save_evaluate_perf(all_gold_labels, all_preds)
+                            cur_eval = 0.5 * (cur_eval_perf["accuracy"] + cur_eval_perf["f1"]["weighted"])
+                            log_rank0(f"ep{epoch}-step{global_steps}: cur eval perf: {cur_eval}")
+                            if cur_eval >= best_eval_perf:
+                                log_rank0(f"ep{epoch}-step{global_steps}: best eval perf: {best_eval_perf} <= cur eval perf: {cur_eval}, updating ...")
+                                best_eval_perf = cur_eval
+                                checkpoint_name = f'{model_args.checkpoint_fname}-epoch{epoch}-step{global_steps}.pt'
+                                do_save = True
                         cur_eval_log_fname = os.path.basename(eval_log_fpath).split(".")[0] + f"-epoch{epoch}-step{global_steps}.json"
                         cur_eval_log_fdir = os.path.dirname(eval_log_fpath)
                         cur_eval_log_fpath = os.path.join(cur_eval_log_fdir, cur_eval_log_fname)
@@ -771,6 +773,8 @@ def train():
                         world_size=ddp_world_size,
                         epoch_seed=epoch_seed,
                     )
+                if ddp:
+                    dist.barrier()
         
     if ddp:
         destroy_process_group()
