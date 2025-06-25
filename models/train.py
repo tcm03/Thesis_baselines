@@ -425,6 +425,7 @@ def train():
         from_epoch += 1
         from_batch = 0
     
+    lbd = training_args.cls_loss_weight
     logging_steps: int = int(training_args.logging_steps)
     eval_steps: int = int(training_args.eval_steps)
     save_steps: int = int(training_args.save_steps)
@@ -506,11 +507,7 @@ def train():
                     } if training_args.generation_eval else None
                 )
                 # loss = 0.5 * outputs["engagement"].loss + 0.5 * outputs["rationale"].loss # I predict the CUDA OOM error stems from here, where loss graphs of two forward passes are combined
-                lbd = training_args.cls_loss_weight
                 loss_eng = outputs_eng["model_outputs"].loss
-                loss_eng = lbd * loss_eng / (2. * gradient_accumulation_steps)
-                train_loss_accum += loss_eng.detach()
-                loss_eng.backward()
 
                 torch.cuda.empty_cache()
                 
@@ -528,9 +525,11 @@ def train():
                     } if training_args.generation_eval else None
                 )
                 loss_rationale = outputs_rationale["model_outputs"].loss
-                loss_rationale = (1. - lbd) * loss_rationale / (2. * gradient_accumulation_steps)
-                train_loss_accum += loss_rationale.detach()
-                loss_rationale.backward()
+
+                loss = lbd * loss_eng + (1. - lbd) * loss_rationale
+                loss = loss / gradient_accumulation_steps
+                train_loss_accum += loss.detach()
+                loss.backward()
             
             if is_last_micro:
                 # Update weights every accum_steps mini-batches
