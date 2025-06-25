@@ -1,0 +1,20 @@
+This txt2txt_raw branch implements training with sequential label and rationale that are provided right in json metadata.
+Hence, the data loading process for training cannot guarantee that the same number of label examples as rationale examples 
+are in each batch. (Thus, not "balance".)
+I trained it for 1.2 epoch on 2 GPUs and the highest performance at epoch 1 is as follows:
+
+Total number of predictions: 2430
+Accuracy: 0.6115226337448559
+Micro precision: 0.6115226337448559
+Micro recall: 0.6115226337448559
+Micro f1: 0.6115226337448559
+Macro precision: 0.6135576874111891
+Macro recall: 0.6103559870550161
+Macro f1: 0.6112678348406463
+Weighted precision: 0.6152935478234511
+Weighted recall: 0.6115226337448559
+Weighted f1: 0.6127142353713586
+
+One major disadvantage of this training option is that it just takes too long because the training json metadata just doubles when 
+we include rationales of each example. Evaluation does take too long (about 2.5 hours) because of gpu async problem that I don't 
+know how to fix yet. (Maybe I have to reimplement the data sampler - lengthgroupedsampler to take into account video duration.)
