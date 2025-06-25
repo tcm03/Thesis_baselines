@@ -1,11 +1,11 @@
 #!/bin/bash
 PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
-TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_nano_train_label_rationale.json"
-EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_label_rationale.json"
+TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_label_rationale_joint.json"
+EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_label_rationale_joint.json"
 
-OUTPUT_DIR="./checkpoints/test_label_rationale"
+OUTPUT_DIR="./checkpoints/txt2txt_label_rationale_joint"
 
-CKPT_NAME="test_label_rationale"
+CKPT_NAME="txt2txt_label_rationale_joint"
 PREV_STAGE_CHECKPOINT=""
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
@@ -51,10 +51,10 @@ NCCL_ASYNC_ERROR_HANDLING=1 NCCL_DEBUG=INFO torchrun --nproc_per_node=2 --master
   --video_fps 1 \
   --highres True \
   --drop_threshold 0.8 \
-  --eval_strategy "epoch" \
-  --eval_steps 151 \
-  --save_strategy "epoch" \
-  --save_steps 379 \
+  --eval_strategy "steps" \
+  --eval_steps 75 \
+  --save_strategy "steps" \
+  --save_steps 189 \
   --logging_steps 20 \
   --num_train_epochs 2 \
   --warmup_ratio 0.03 \

@@ -550,8 +550,8 @@ def train():
 
                     eval_preds = []
                     for eval_batch_idx, eval_batch in enumerate(eval_dataloader):
-                        # log_rank0(f'After epoch {epoch + 1}, eval batch {eval_batch_idx+1}/{len(eval_dataloader)}')
-                        logging.info(f"[DBG rank {ddp_rank}] start inference on video {eval_batch_idx}/{len(eval_dataloader)}: {eval_batch['video_paths'][0]}")
+                        log_rank0(f'After epoch {epoch + 1}, eval batch {eval_batch_idx+1}/{len(eval_dataloader)}')
+                        # logging.info(f"[DBG rank {ddp_rank}] start inference on video {eval_batch_idx}/{len(eval_dataloader)}: {eval_batch['video_paths'][0]}")
 
                         eval_label = int(eval_batch["eng_classes"][0])
 
@@ -570,7 +570,7 @@ def train():
                                     "use_cache": True,
                                 } # if training_args.generation_eval else None
                             )
-                            logging.info(f"[DBG rank {ddp_rank}] done inference on video {eval_batch_idx}/{len(eval_dataloader)}: {eval_batch['video_paths'][0]}")
+                            # logging.info(f"[DBG rank {ddp_rank}] done inference on video {eval_batch_idx}/{len(eval_dataloader)}: {eval_batch['video_paths'][0]}")
                             eval_preds.append({
                                 "video_path": eval_batch["video_paths"][0],
                                 "pred": outputs["preds"][0],
@@ -588,33 +588,6 @@ def train():
                         cur_eval_log_fpath = os.path.join(cur_eval_log_fdir, cur_eval_log_fname)
                         with open(cur_eval_log_fpath, "w") as f:
                             json.dump(all_preds, f, indent=4)
-
-                    if master_process and training_args.generation_eval:
-                        # logging.info(f"Eval video paths: {eval_video_paths}")
-                        # @tcm: At the moment, print out predicted label and generated text for each video in the eval set.
-                        assert len(eval_video_paths) == len(eval_device_text_preds) and len(eval_video_paths) == len(eval_device_preds), "need equal"
-                        eval_logs: List[EvalProgressLog] = []
-                        for video_path, cls_pred, gen_pred in zip(eval_video_paths, eval_device_preds, eval_device_text_preds):
-                            eval_logs.append(EvalProgressLog(
-                                epoch=epoch + (batch_idx+1) / len(train_dataloader),
-                                step=global_steps,
-                                video_path=video_path,
-                                cls_pred=cls_pred.item(),
-                                gen_pred=gen_pred
-                            ))
-                        cur_eval_log_fname = os.path.basename(eval_log_fpath).split(".")[0] + f"-epoch{epoch}-step{global_steps}.json"
-                        cur_eval_log_fdir = os.path.dirname(eval_log_fpath)
-                        cur_eval_log_fpath = os.path.join(cur_eval_log_fdir, cur_eval_log_fname)
-                        with open(cur_eval_log_fpath, "w") as f:
-                            json_eval_logs = [log.to_dict() for log in eval_logs]
-                            json.dump(json_eval_logs, f, indent=4)
-
-                    eval_gathered_preds = [None for _ in range(ddp_world_size)] if master_process else None
-                    eval_gathered_references = [None for _ in range(ddp_world_size)] if master_process else None
-                    if training_args.generation_eval:
-                        dist.gather_object(eval_device_text_preds, eval_gathered_preds, dst=0)
-                        dist.gather_object(eval_device_text_references, eval_gathered_references, dst=0)
-                    model.train()
     
                 do_save = False
                 checkpoint_name = model_args.checkpoint_fname
