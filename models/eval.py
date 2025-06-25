@@ -113,3 +113,31 @@ def evaluate_perf(
         logging.info(f"{prefix} bertscore: {bertscore_score if 'bertscore' in kwargs else 'N/A'}")
 
     return cur_perf
+
+def save_evaluate_perf(
+    all_gold_labels: List[int],
+    all_preds: List[int]
+):
+    accuracy = accuracy_score(all_gold_labels, all_preds)
+    prec_w, recall_w, f1_w, _ = precision_recall_fscore_support(all_gold_labels, all_preds, average='weighted')
+    prec_micro, recall_micro, f1_micro, _ = precision_recall_fscore_support(all_gold_labels, all_preds, average='micro')
+    prec_macro, recall_macro, f1_macro, _ = precision_recall_fscore_support(all_gold_labels, all_preds, average='macro')
+
+    return {
+        "accuracy": accuracy,
+        "precision": {
+            "weighted": prec_w,
+            "micro": prec_micro,
+            "macro": prec_macro
+        },
+        "recall": {
+            "weighted": recall_w,
+            "micro": recall_micro,
+            "macro": recall_macro
+        },
+        "f1": {
+            "weighted": f1_w,
+            "micro": f1_micro,
+            "macro": f1_macro
+        }
+    }

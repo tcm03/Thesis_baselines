@@ -59,3 +59,15 @@ def seed_worker(worker_id):
 
 def gen_hex(gen: torch.Generator) -> str:
     return hashlib.sha1(gen.get_state().cpu().numpy().tobytes()).hexdigest()[:12]
+
+def flatten_list(data):
+    if type(data) == list or type(data) == tuple:
+        res = []
+        for item in data:
+            if type(item) == list or type(item) == tuple:
+                res.extend(flatten_list(item))
+            else:
+                res.append(item)
+        return res
+    else:
+        return [data]

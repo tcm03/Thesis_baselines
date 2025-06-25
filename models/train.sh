@@ -55,6 +55,7 @@ torchrun --nproc_per_node=2 --master_port=29506 models/train.py \
   --eval_steps 151 \
   --save_strategy "steps" \
   --save_steps 379 \
+  --save_best True \
   --logging_steps 10 \
   --num_train_epochs 2 \
   --warmup_ratio 0.03 \
