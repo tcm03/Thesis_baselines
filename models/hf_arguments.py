@@ -149,6 +149,7 @@ class CustomTrainingArguments(transformers.TrainingArguments):
     eval_log: Optional[str] = field(default=None)
     cls_loss_weight: Optional[float] = field(default=0.5)
     generation_eval: bool = field(default=False)
+    save_best: bool = field(default=False)
 
 # @dataclass
 # class CustomArguments:

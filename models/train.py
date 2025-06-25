@@ -32,7 +32,7 @@ from supervised_dataset import make_supervised_data_module
 from grouped_sampler import LengthGroupedSampler
 from opti import get_optimizer
 from train_log import *
-from models.utils import count_parameters, log_rank0, seed_worker, gen_hex
+from models.utils import count_parameters, log_rank0, seed_worker, gen_hex, flatten_list
 from models.train_ckpt import *
 from models.eval import *
 
@@ -456,6 +456,7 @@ def train():
         train_loss_accum = torch.zeros(1, device=device)
         train_device_preds, train_device_gold_labels = [], []
         train_device_text_preds, train_device_text_references = [], []
+        best_eval_perf = 0.
         for batch_idx, batch in enumerate(train_dataloader):
             # if epoch == from_epoch and batch_idx == from_batch:
             #     log_rank0(f"[DBG] first batch this run: gen={gen_hex(generator)}")
@@ -508,7 +509,7 @@ def train():
                 # loss = 0.5 * outputs["engagement"].loss + 0.5 * outputs["rationale"].loss # I predict the CUDA OOM error stems from here, where loss graphs of two forward passes are combined
                 lbd = training_args.cls_loss_weight
                 loss_eng = outputs_eng["model_outputs"].loss
-                loss_eng = lbd * loss_eng / (2. * gradient_accumulation_steps)
+                loss_eng = lbd * loss_eng / gradient_accumulation_steps
                 train_loss_accum += loss_eng.detach()
                 loss_eng.backward()
 
@@ -528,7 +529,7 @@ def train():
                     } if training_args.generation_eval else None
                 )
                 loss_rationale = outputs_rationale["model_outputs"].loss
-                loss_rationale = (1. - lbd) * loss_rationale / (2. * gradient_accumulation_steps)
+                loss_rationale = (1. - lbd) * loss_rationale / gradient_accumulation_steps
                 train_loss_accum += loss_rationale.detach()
                 loss_rationale.backward()
             
@@ -575,6 +576,7 @@ def train():
                 train_loss_accum.zero_()        # reset tensor, keeps same device
 
                 do_eval = False
+                do_save = False
                 if training_args.eval_strategy == 'epoch':
                     do_eval = (batch_idx == len(train_dataloader) - 1)
                 elif training_args.eval_strategy == 'steps':
@@ -611,6 +613,8 @@ def train():
                     # eval_video_paths = []
 
                     eval_engagement_preds = []
+                    eval_device_preds = []
+                    eval_device_gold_labels = []
                     for eval_batch_idx, eval_batch in enumerate(eval_dataloader):
                         log_rank0(f'After epoch {epoch + 1}, eval batch {eval_batch_idx+1}/{len(eval_dataloader)}')
 
@@ -639,9 +643,13 @@ def train():
                                     "use_cache": True,
                                 },
                             )
+                            engagement_pred = outputs["preds"][0].lower().strip()
+                            if engagement_pred in engagement2int:
+                                eval_device_preds.append(engagement2int[engagement_pred])
+                                eval_device_gold_labels.append(eval_label)
                             eval_engagement_preds.append({
                                 "video_path": eval_batch["video_paths"][0],
-                                "engagement_pred": outputs["preds"][0],
+                                "engagement_pred": engagement_pred,
                                 "gold_label": eval_label
                             })
                             # eval_logits = outputs.cls_logits
@@ -658,7 +666,21 @@ def train():
                             # eval_video_paths.extend(eval_batch["video_paths"])
 
                     all_engagement_preds = [None for _ in range(ddp_world_size)] if master_process else None
+                    all_preds = [None for _ in range(ddp_world_size)] if master_process else None
+                    all_gold_labels = [None for _ in range(ddp_world_size)] if master_process else None
                     dist.gather_object(eval_engagement_preds, all_engagement_preds, dst=0)
+                    dist.gather_object(eval_device_preds, all_preds, dst=0)
+                    dist.gather_object(eval_device_gold_labels, all_gold_labels, dst=0)
+                    if training_args.save_best:
+                        all_preds = flatten_list(all_preds)
+                        all_gold_labels = flatten_list(all_gold_labels)
+                        cur_eval_perf = save_evaluate_perf(all_gold_labels, all_preds)
+                        cur_eval = 0.5 * (cur_eval_perf["accuracy"] + cur_eval_perf["f1"]["weighted"])
+                        if cur_eval >= best_eval_perf:
+                            log_rank0(f"Cur eval = {cur_eval:.5f} >= best eval = {best_eval_perf:.5f}, saving checkpoint...")
+                            best_eval_perf = cur_eval
+                            checkpoint_name = f'{model_args.checkpoint_fname}-epoch{epoch}-step{global_steps}.pt'
+                            do_save = True
                     if master_process:
                         cur_eval_log_fname = os.path.basename(eval_log_fpath).split(".")[0] + f"-epoch{epoch}-step{global_steps}.json"
                         cur_eval_log_fdir = os.path.dirname(eval_log_fpath)
@@ -718,21 +740,21 @@ def train():
                     #         json_eval_perf = [perf.to_dict() for perf in eval_perf]
                     #         json.dump(json_eval_perf, f, indent=4)
                     model.train()
-    
-                do_save = False
-                checkpoint_name = model_args.checkpoint_fname
-                if training_args.save_strategy == 'epoch':
-                    do_save = (batch_idx == len(train_dataloader) - 1)
-                    if do_save:
-                        checkpoint_name = f'{checkpoint_name}-epoch{epoch}.pt'
-                elif training_args.save_strategy == 'steps':
-                    do_save = (global_steps % save_steps == 0)
-                    if do_save:
-                        checkpoint_name = f'{checkpoint_name}-epoch{epoch}-step{global_steps}.pt'
-                if epoch == num_epochs - 1 and batch_idx == len(train_dataloader) - 1:
-                    # always save checkpoint at the very last training step
-                    do_save = True
-                    checkpoint_name = f'{checkpoint_name}-epoch{epoch}-final.pt'
+
+                if not do_save:
+                    checkpoint_name = model_args.checkpoint_fname
+                    if training_args.save_strategy == 'epoch':
+                        do_save = (batch_idx == len(train_dataloader) - 1)
+                        if do_save:
+                            checkpoint_name = f'{checkpoint_name}-epoch{epoch}.pt'
+                    elif training_args.save_strategy == 'steps':
+                        do_save = (global_steps % save_steps == 0)
+                        if do_save:
+                            checkpoint_name = f'{checkpoint_name}-epoch{epoch}-step{global_steps}.pt'
+                    if epoch == num_epochs - 1 and batch_idx == len(train_dataloader) - 1:
+                        # always save checkpoint at the very last training step
+                        do_save = True
+                        checkpoint_name = f'{checkpoint_name}-epoch{epoch}-final.pt'
                 if do_save:
                     log_rank0(f'Saving checkpoint at epoch {epoch}, global step {global_steps}...')
                     checkpoint_path = os.path.join(model_args.output_model_filename, checkpoint_name)
