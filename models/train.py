@@ -51,7 +51,7 @@ logging.basicConfig(
     format="%(asctime)s - %(filename)s:%(lineno)d - %(funcName)s - %(levelname)s - %(message)s"
 )
 
-os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:128"
+# os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:256"
 
 GLOBAL_SEED = 1337
 torch.manual_seed(GLOBAL_SEED)
@@ -101,6 +101,8 @@ def forward_step(
     if gen_config_dict is not None:
         stopping_criteria = KeywordsStoppingCriteria(keywords, tokenizer, input_ids)
         raw = model.module if hasattr(model, "module") else model
+        if gen_config_dict.get("use_cache", True):
+            raw.config.use_cache = True
         with torch.inference_mode():
             was_training = raw.training
             if was_training:
@@ -485,6 +487,10 @@ def train():
                 "image_aux_attention_masks_list": batch["image_aux_attention_masks_list_rationale"],
                 "image_sizes": batch["image_sizes"],
             }
+            if ddp:
+                model.module.config.use_cache = False
+            else:
+                model.config.use_cache = False
             with ddp_context:
                 outputs_eng = forward_step(
                     model, 
@@ -505,6 +511,8 @@ def train():
                 loss_eng = lbd * loss_eng / (2. * gradient_accumulation_steps)
                 train_loss_accum += loss_eng.detach()
                 loss_eng.backward()
+
+                torch.cuda.empty_cache()
                 
                 outputs_rationale = forward_step(
                     model, 
@@ -530,6 +538,8 @@ def train():
                 global_steps += 1
                 if ddp:
                     dist.all_reduce(train_loss_accum, op=dist.ReduceOp.AVG)
+                if global_steps % logging_steps == 0:
+                    logging.info(f"MEMORY STATS RANK {ddp_rank}: {torch.cuda.memory_summary(abbreviated=True)}")
                 if global_steps % logging_steps == 0 and master_process:
                     total_norm = sum(p.grad.detach().data.norm(2).item() ** 2 for p in model.parameters() if p.grad is not None) ** 0.5
                     logging.info(f'Epoch {epoch + 1}/{num_epochs}, global step: {global_steps}, loss={train_loss_accum.item():.10f}, clipped gradient norm: {total_norm:.4f}')
