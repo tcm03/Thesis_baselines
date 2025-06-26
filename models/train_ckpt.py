@@ -68,7 +68,7 @@ def save_checkpoint(path: str,
             "epoch_seed": epoch_seed,
         }, path)
         log_rank0(f"Checkpoint saved to {path}")
-    dist.barrier()
+    # dist.barrier()
 
 # ---------- LOAD ----------
 def load_checkpoint(path: str,

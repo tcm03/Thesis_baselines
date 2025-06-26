@@ -22,7 +22,7 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 # import annotation.utils (which imports decord) after torch to avoid bug
 import torch.multiprocessing as mp
 from resource_logging import measure_resource_usage, MeasureResourceUsage
-import evaluate
+# import evaluate
 
 from models.hf_arguments import *
 from backbones.language_models.cambrian_llama import CambrianLlamaForCausalLM, CambrianLlamaForSequenceClassification
@@ -439,11 +439,11 @@ def train():
     train_logs: List[TrainProgressLog] = []
     train_perf: List[PerfMetrics] = []
     eval_perf: List[PerfMetrics] = []
-    if training_args.generation_eval:
-        bleu = evaluate.load("bleu")
-        rouge = evaluate.load("rouge")
-        meteor = evaluate.load("meteor")
-        bertscore = evaluate.load("bertscore")
+    # if training_args.generation_eval:
+    #     bleu = evaluate.load("bleu")
+    #     rouge = evaluate.load("rouge")
+    #     meteor = evaluate.load("meteor")
+    #     bertscore = evaluate.load("bertscore")
 
     log_rank0("Starting training")
     for epoch in range(from_epoch, num_epochs):
@@ -464,6 +464,7 @@ def train():
                 log_rank0(f"Skipping epoch {epoch} batch {batch_idx}")
                 continue
             log_rank0(f'Epoch {epoch + 1}/{num_epochs}, batch {batch_idx + 1}/{len(train_dataloader)}')
+            # logging.info(f'[{ddp_rank}]: Epoch {epoch + 1}/{num_epochs}, batch {batch_idx + 1}/{len(train_dataloader)}, video_path: {batch["video_paths"][0]}')
 
             is_last_micro = ((batch_idx + 1) % gradient_accumulation_steps == 0) or (batch_idx == len(train_dataloader) - 1)
             
@@ -539,8 +540,8 @@ def train():
                 global_steps += 1
                 if ddp:
                     dist.all_reduce(train_loss_accum, op=dist.ReduceOp.AVG)
-                if global_steps % logging_steps == 0:
-                    logging.info(f"MEMORY STATS RANK {ddp_rank}: {torch.cuda.memory_summary(abbreviated=True)}")
+                # if global_steps % logging_steps == 0:
+                #     logging.info(f"MEMORY STATS RANK {ddp_rank}: {torch.cuda.memory_summary(abbreviated=True)}")
                 if global_steps % logging_steps == 0 and master_process:
                     total_norm = sum(p.grad.detach().data.norm(2).item() ** 2 for p in model.parameters() if p.grad is not None) ** 0.5
                     logging.info(f'Epoch {epoch + 1}/{num_epochs}, global step: {global_steps}, loss={train_loss_accum.item():.10f}, clipped gradient norm: {total_norm:.4f}')
@@ -617,6 +618,7 @@ def train():
                     eval_device_gold_labels = []
                     for eval_batch_idx, eval_batch in enumerate(eval_dataloader):
                         log_rank0(f'After epoch {epoch + 1}, eval batch {eval_batch_idx+1}/{len(eval_dataloader)}')
+                        # logging.info(f'[{ddp_rank}]: After epoch {epoch + 1}, eval batch {eval_batch_idx+1}/{len(eval_dataloader)}, video_path: {eval_batch["video_paths"][0]}')
 
                         eval_label = int(eval_batch["eng_classes"][0])
                         eval_batch_eng = {
@@ -664,24 +666,27 @@ def train():
                             #     eval_device_text_preds.extend(outputs["preds"])
                             #     eval_device_text_references.extend(eval_batch["responses"])
                             # eval_video_paths.extend(eval_batch["video_paths"])
-
+                    # if len(eval_device_preds) == 0 and len(eval_device_gold_labels) == 0:
+                    #     # simulate when no response gives engagement label
+                    #     eval_device_preds = [0, 1, 2]
+                    #     eval_device_gold_labels = [2, 1, 0]
                     all_engagement_preds = [None for _ in range(ddp_world_size)] if master_process else None
                     all_preds = [None for _ in range(ddp_world_size)] if master_process else None
                     all_gold_labels = [None for _ in range(ddp_world_size)] if master_process else None
                     dist.gather_object(eval_engagement_preds, all_engagement_preds, dst=0)
                     dist.gather_object(eval_device_preds, all_preds, dst=0)
                     dist.gather_object(eval_device_gold_labels, all_gold_labels, dst=0)
-                    if training_args.save_best:
-                        all_preds = flatten_list(all_preds)
-                        all_gold_labels = flatten_list(all_gold_labels)
-                        cur_eval_perf = save_evaluate_perf(all_gold_labels, all_preds)
-                        cur_eval = 0.5 * (cur_eval_perf["accuracy"] + cur_eval_perf["f1"]["weighted"])
-                        if cur_eval >= best_eval_perf:
-                            log_rank0(f"Cur eval = {cur_eval:.5f} >= best eval = {best_eval_perf:.5f}, saving checkpoint...")
-                            best_eval_perf = cur_eval
-                            checkpoint_name = f'{model_args.checkpoint_fname}-epoch{epoch}-step{global_steps}.pt'
-                            do_save = True
                     if master_process:
+                        if training_args.save_best:
+                            all_preds = flatten_list(all_preds)
+                            all_gold_labels = flatten_list(all_gold_labels)
+                            cur_eval_perf = save_evaluate_perf(all_gold_labels, all_preds)
+                            cur_eval = 0.5 * (cur_eval_perf["accuracy"] + cur_eval_perf["f1"]["weighted"])
+                            if cur_eval >= best_eval_perf:
+                                log_rank0(f"Cur eval = {cur_eval:.5f} >= best eval = {best_eval_perf:.5f}, saving checkpoint...")
+                                best_eval_perf = cur_eval
+                                checkpoint_name = f'{model_args.checkpoint_fname}-epoch{epoch}-step{global_steps}.pt'
+                                do_save = True
                         cur_eval_log_fname = os.path.basename(eval_log_fpath).split(".")[0] + f"-epoch{epoch}-step{global_steps}.json"
                         cur_eval_log_fdir = os.path.dirname(eval_log_fpath)
                         cur_eval_log_fpath = os.path.join(cur_eval_log_fdir, cur_eval_log_fname)
@@ -773,6 +778,8 @@ def train():
                         world_size=ddp_world_size,
                         epoch_seed=epoch_seed,
                     )
+                if ddp:
+                    dist.barrier()
         
     if ddp:
         destroy_process_group()
