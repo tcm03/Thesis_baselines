@@ -83,6 +83,7 @@ def main(args):
         data = json.load(f)
     preds = []
     gts = []
+    cnt_valid = 0
     for i, item in enumerate(tqdm(data)):
         desc = item["conversations"][1]["value"]
         full_prompt = f"{fewshot_prompt}\n\nDescription: {desc}\nEngagement Label: "
@@ -103,7 +104,7 @@ def main(args):
         except Exception as e:
             logging.error(f"Failed to get response for item: {e}")
             continue
-
+        cnt_valid += 1
         if (i+1) % args.logging_steps == 0:
             logging.info(f"Video {item['video']}, label {item['label']}, pred {pred_label}")
 
@@ -117,13 +118,17 @@ def main(args):
     f1_weighted = f1_score(gts, preds, average="weighted")
     precision_weighted = precision_score(gts, preds, average="weighted")
     recall_weighted = recall_score(gts, preds, average="weighted")
-    logging.info(f"accuracy: {acc:.10f}")
+    logging.info(f"Total valid samples: {cnt_valid}/{len(data)}")
+    logging.info(f"Accuracy: {acc:.10f}")
     logging.info(f"weighted precision: {precision_weighted:.10f}, recall: {recall_weighted:.10f}, f1: {f1_weighted:.10f}")
     logging.info(f"micro precision: {precision_micro:.10f}, recall: {recall_micro:.10f}, f1: {f1_micro:.10f}")
     logging.info(f"macro precision: {precision_macro:.10f}, recall: {recall_macro:.10f}, f1: {f1_macro:.10f}")
 
     if args.output_dir is not None:
         results_dir = {
+            "model": args.model,
+            "num_samples": len(data),
+            "num_valid_samples": cnt_valid,
             "accuracy": acc,
             "weighted precision": precision_weighted,
             "weighted recall": recall_weighted,
