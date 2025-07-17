@@ -1,0 +1,18 @@
+{
+    "description:": "Gemini video engagement classification results on the testing set with one-shot prompting video.",
+    "model": "gemini-2.0-flash-lite",
+    "json_path": "/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_test_gemini_rawcap.json",
+    "full_prompt": "\nYou are given a user\u2011generated social media video. Your task is twofold:\n\n1. Implicitly consider the video across the following nine dimensions:\n    a. **Content** \u2013 \u201cPlease implicitly analyze how the video's opening moments and storytelling elements contribute to this level of engagement. Examine aspects such as the initial hook, pacing, and narrative structure that may influence viewer attention.\u201d\n    b. **Emotion** \u2013 \u201cPlease examine the emotional tones conveyed throughout the video. Consider how these emotions might impact viewer engagement, and whether they align with the video's overall message.\u201d\n    c. **Visual** \u2013 \u201cPlease evaluate the visual elements, including color schemes, camera angles, and special effects. Think about how these stylistic choices may affect the video's appeal and viewer retention.\u201d\n    d. **Audio** \u2013 \u201cPlease assess the audio components, such as background music, sound effects, and vocal delivery. Analyze how these auditory elements contribute to the video's engagement level.\u201d\n    e. **Trend** \u2013 \u201cPlease determine if the content aligns with current social media trends or cultural moments. Consider how this alignment, or lack thereof, might influence viewer engagement.\u201d\n    f. **Interactivity** \u2013 \u201cPlease explore the interactive elements present, such as calls to action, challenges, or prompts for viewer participation. Evaluate how these features may affect engagement.\u201d\n    g. **Authenticity** \u2013 \u201cPlease analyze the authenticity and relatability of the content. Consider factors like the creator's presentation style, language, and subject matter in relation to viewer connection.\u201d\n    h. **Information** \u2013 \u201cPlease assess the informational or practical value offered. Consider how the content provides utility or knowledge to the viewer and its potential impact on engagement.\u201d\n    i. **Quality** \u2013 \u201cPlease evaluate the technical aspects of production, including video resolution, editing quality, and overall polish. Analyze how these factors may influence viewer engagement.\u201d\n\n2. After analyzing each aspect, combine your insights to **classify the overall engagement level** of the video. Output rationale and finally output one of the three labels:\n\n    - **not engaged**\n    - **neutral**\n    - **engaged**\n\n    Please stop after outputting one of the three labels above.\n",
+    "number of samples": 3647,
+    "number of valid samples": 50,
+    "accuracy": 0.02,
+    "weighted precision": 1.0,
+    "weighted recall": 0.02,
+    "weighted f1": 0.0392156862745098,
+    "micro precision": 0.02,
+    "micro recall": 0.02,
+    "micro f1": 0.02,
+    "macro precision": 0.3333333333333333,
+    "macro recall": 0.006666666666666667,
+    "macro f1": 0.013071895424836602
+}

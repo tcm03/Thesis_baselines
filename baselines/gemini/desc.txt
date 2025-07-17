@@ -1,0 +1,16 @@
+This folder contains baselines based on prompting Gemini.
+
+
+gemini_desc.py implements a two-stage prompting pipline where the first stage prompts Gemini to produce detailed, but general, caption of the video.
+The second stage employs some LLM to evaluate the engagement level of a video based on its caption. An example for each label is provided, which forms 
+three-shot prompting.
+
+
+gemini_video.py directly prompts Gemini with input videos to predict the engagement. Noticeably, three-shot prompting with videos is not as effective as 
+zero-shot prompting.
+
+WHAT DONE:
+- complete prompting Gemini with various strategies, on SnapUGC_0
+
+WHAT NOT DONE:
+- On full SnapUGC (4 shards)

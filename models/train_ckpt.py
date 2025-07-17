@@ -15,10 +15,17 @@ def _rng_pack() -> Dict[str, Any]:
         "python":     random.getstate(),
     }
 
-def _rng_unpack(pkg: Dict[str, Any]):
+def _rng_unpack(pkg):
     torch.set_rng_state(pkg["torch_cpu"])
-    if pkg["torch_cuda"] is not None:
-        torch.cuda.set_rng_state_all(pkg["torch_cuda"])
+    if torch.cuda.is_available() and pkg["torch_cuda"] is not None:
+        n_cur = torch.cuda.device_count()
+        if n_cur == len(pkg["torch_cuda"]):
+            torch.cuda.set_rng_state_all(pkg["torch_cuda"])
+        else:  # length mismatch – just skip or truncate
+            log_rank0(
+                f"Warning: checkpoint has RNG for {len(pkg['torch_cuda'])} "
+                f"GPUs but current run sees {n_cur}. Skipping CUDA RNG restore."
+            )
     np.random.set_state(pkg["numpy"])
     random.setstate(pkg["python"])
 
@@ -43,8 +50,13 @@ def save_checkpoint(path: str,
         os.makedirs(os.path.dirname(path), exist_ok=True)
     raw = model.module if hasattr(model, "module") else model
 
-    trainable = {k: v for k, v in raw.state_dict().items()
-                 if v.requires_grad}
+    # nn.Module.state_dict() stores raw tensors, not nn.Parameter objects. Those tensors do not carry the requires_grad=True flag
+    # trainable = {k: v for k, v in raw.state_dict().items()
+    #              if v.requires_grad}
+    trainable = {
+        name: p.detach().cpu()
+        for name, p in raw.named_parameters() if p.requires_grad
+    }
 
     if master_process:
         torch.save({
@@ -79,9 +91,15 @@ def load_checkpoint(path: str,
                     load_scheduler: bool = True):
 
     # Rank-0 reads from disk, then broadcasts the whole object list.
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Checkpoint file {path} does not exist.")
+    if not os.path.isfile(path):
+        raise ValueError(f"Checkpoint path {path} is not a file.")    
+    log_rank0(f"Loading checkpoint from {path}")
     ckpt = torch.load(path, map_location="cpu")
 
     raw  = model.module if hasattr(model, "module") else model
+    log_rank0(f'TRAINABLE STATE DICT:\n{ckpt["model_trainable_state_dict"]}')
     raw.load_state_dict(ckpt["model_trainable_state_dict"], strict=False)
     return_dict = {}
 
@@ -105,9 +123,10 @@ def load_checkpoint(path: str,
         )
         scheduler.load_state_dict(ckpt["scheduler_state_dict"])
         return_dict["scheduler"] = scheduler
-        return_dict["num_warmup_steps"] = ckpt["num_warmup_steps"]
+        return_dict["num_warmupa_steps"] = ckpt["num_warmup_steps"]
         return_dict["num_training_steps"] = ckpt["num_training_steps"]
     
+    # log_rank0(f"Checkpoint rng_state: {ckpt['rng_state']}")
     _rng_unpack(ckpt["rng_state"])
     generator.manual_seed(ckpt["epoch_seed"])
     # _set_rng_state_for_this_rank(ckpt["rng_states_per_rank"], generator)

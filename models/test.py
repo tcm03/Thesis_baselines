@@ -4,8 +4,10 @@ import argparse
 import models.conversation_lib as conversation_lib
 from models.hf_arguments import ModelArguments, DataArguments, CustomTrainingArguments
 import torch
+from torch.nn import DataParallel
 from models.cambrian_llama import CambrianLlamaForSequenceClassification, CambrianLlamaForCausalLM
 import json
+from train_ckpt import load_checkpoint
 
 def main(args):
     parser = transformers.HfArgumentParser(
@@ -97,8 +99,11 @@ def main(args):
         model.config.is_st_sampler = model_args.is_st_sampler  # pyre-fixme
         data_args.image_token_len = model_args.image_token_len
         model.initialize_vision_tokenizer(model_args, tokenizer=tokenizer)
-
-    model.to(torch.bfloat16)
+    
+    if training_args.bf16:
+        model.to(torch.bfloat16)
+    elif training_args.fp16:
+        model.to(torch.float16)
     model.to(device)
     # pyre-fixme
     def convert_bn_to_float(model):
@@ -109,6 +114,41 @@ def main(args):
         return model
 
     model = convert_bn_to_float(model)
+    checkpoint_path = args.model_path
+    generator = torch.Generator() # does nothing during testing
+    generator.manual_seed(GLOBAL_SEED)
+    load_checkpoint(checkpoint_path, training_args, model, generator)
+    if torch.cuda.device_count() > 1:
+        model = DataParallel(model)
+    data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
+    test_dataset = data_module["test_dataset"]
+    data_collator = data_module["data_collator"]
+
+    assert training_args.group_by_modality_length is True, "Group by modality length must be True"
+    # Instantiate LengthGroupedSampler
+    test_sampler = LengthGroupedSampler(
+        batch_size=training_args.per_device_eval_batch_size,
+        world_size=ddp_world_size,
+        lengths=test_dataset.modality_lengths,
+        generator=generator,
+        group_by_modality=training_args.group_by_modality_length,
+    )
+    train_dataloader = DataLoader(
+        train_dataset,
+        batch_size=training_args.per_device_train_batch_size,
+        sampler=train_sampler,
+        collate_fn=data_collator,
+        pin_memory=True,
+        drop_last=True, # per-device train batch size = 1 so we won't miss too many samples
+    )
+    eval_dataloader = DataLoader(
+        eval_dataset,
+        batch_size=training_args.per_device_eval_batch_size,
+        sampler=eval_sampler,
+        collate_fn=data_collator,
+        pin_memory=True,
+        drop_last=True, # per-device eval batch size = 1 so we won't miss too many samples
+    )
 
 
 if __name__ == "__main__":

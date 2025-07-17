@@ -71,6 +71,12 @@ class DataArguments:
             "help": "Paths to evaluation metadata files"
         }
     )
+    test_paths: List[str] = field(
+        default_factory=list,
+        metadata={
+            "help": "Paths to testing metadata files"
+        }
+    )
 
     lazy_preprocess: bool = False
     is_multimodal: bool = False
@@ -149,6 +155,8 @@ class CustomTrainingArguments(transformers.TrainingArguments):
     train_perf_log: Optional[str] = field(default=None)
     eval_perf_log: Optional[str] = field(default=None)
     eval_log: Optional[str] = field(default=None)
+    test_perf_log: Optional[str] = field(default=None)
+    test_log: Optional[str] = field(default=None)
     cls_loss_weight: Optional[float] = field(default=0.5)
     generation_eval: bool = field(default=False)
 

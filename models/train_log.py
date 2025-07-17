@@ -1,17 +1,17 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 
 class TrainProgressLog:
     def __init__(
         self,
         run_type: str,
-        epoch: float,
-        step: int, 
         loss: float, 
         grad_norm: float, 
         learning_rate: float,
         video_path: str = None,
         cls_pred: str = None,
-        gen_pred: str = None
+        gen_pred: str = None,
+        epoch: Optional[float] = None,
+        step: Optional[int] = None, 
     ):
         self.run_type = run_type
         self.epoch = epoch
@@ -40,8 +40,6 @@ class TrainProgressLog:
 class PerfMetrics:
     def __init__(
         self, 
-        epoch: float,
-        step: int,
         accuracy: float, 
         precision: Dict[str, float], 
         recall: Dict[str, float], 
@@ -50,7 +48,9 @@ class PerfMetrics:
         bleu: Dict[str, Any] = None,
         rouge: Dict[str, Any] = None,
         meteor: Dict[str, Any] = None,
-        bertscore: Dict[str, Any] = None
+        bertscore: Dict[str, Any] = None,
+        epoch: Optional[float] = None,
+        step: Optional[int] = None,
     ):
         self.epoch = epoch
         self.step = step

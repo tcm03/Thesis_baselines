@@ -657,6 +657,9 @@ def make_supervised_data_module(
     eval_dataset = EvalSupervisedDataset(
         tokenizer=tokenizer, data_paths=data_args.eval_paths, data_args=data_args
     )
+    test_dataset = EvalSupervisedDataset(
+        tokenizer=tokenizer, data_paths=data_args.test_paths, data_args=data_args
+    )
     
     data_collator_kwargs = {
         "tokenizer": tokenizer,
@@ -678,5 +681,5 @@ def make_supervised_data_module(
     data_collator = DataCollatorForSupervisedDataset(**data_collator_kwargs)  # pyre-fixme
 
     return dict(
-        train_dataset=train_dataset, eval_dataset=eval_dataset, data_collator=data_collator
+        train_dataset=train_dataset, eval_dataset=eval_dataset, test_dataset=test_dataset, data_collator=data_collator
     )

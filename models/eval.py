@@ -2,7 +2,7 @@ import torch
 import torch.distributed as dist
 import os
 from typing import List
-from sklearn.metrics import accuracy_score, precision_recall_fscore_support
+from sklearn.metrics import classification_report
 from models.train_log import PerfMetrics
 import logging
 import numpy as np
@@ -17,7 +17,7 @@ def evaluate_perf(
     prefix: str = "Train",
     **kwargs
 ):
-    ddp = int(os.environ.get("RANK", -1)) != -1
+    is_distributed = int(os.environ.get("RANK", -1)) != -1
     ddp_rank = int(os.environ["RANK"])
     ddp_local_rank = int(os.environ["LOCAL_RANK"])
     ddp_world_size = int(os.environ["WORLD_SIZE"])
@@ -28,7 +28,7 @@ def evaluate_perf(
     if device_loss is not None and device_samples is not None:
         total_loss_tensor = torch.tensor(device_loss, device=device)
         total_samples_tensor = torch.tensor(device_samples, device=device)
-        if ddp:
+        if is_distributed:
             # aggregate losses across devices
             dist.all_reduce(total_loss_tensor, op=dist.ReduceOp.SUM)
             dist.all_reduce(total_samples_tensor, op=dist.ReduceOp.SUM)
@@ -37,7 +37,7 @@ def evaluate_perf(
     preds = torch.cat(device_preds, dim=0)
     gold_labels = torch.cat(device_gold_labels, dim=0)
     # Gather predictions from all processes
-    if ddp:
+    if is_distributed:
         all_preds = [torch.zeros_like(preds) for _ in range(ddp_world_size)]
         all_gold_labels = [torch.zeros_like(gold_labels) for _ in range(ddp_world_size)]
         dist.all_gather(all_preds, preds)
@@ -49,28 +49,29 @@ def evaluate_perf(
     gold_labels_np = gold_labels.cpu().numpy()
     cur_perf = None
     if master_process:
-        accuracy = accuracy_score(gold_labels_np, preds_np)
-        prec_w, recall_w, f1_w, _ = precision_recall_fscore_support(gold_labels_np, preds_np, average='weighted')
-        prec_micro, recall_micro, f1_micro, _ = precision_recall_fscore_support(gold_labels_np, preds_np, average='micro')
-        prec_macro, recall_macro, f1_macro, _ = precision_recall_fscore_support(gold_labels_np, preds_np, average='macro')
+        report = classification_report(gold_labels_np, preds_np, output_dict=True)
+        accuracy = report["accuracy"]
+        prec_w = report["weighted avg"]["precision"]
+        recall_w = report["weighted avg"]["recall"]
+        f1_w = report["weighted avg"]["f1-score"]
+        prec_macro = report["macro avg"]["precision"]
+        recall_macro = report["macro avg"]["recall"]
+        f1_macro = report["macro avg"]["f1-score"]
 
         cur_perf = PerfMetrics(
-            epoch=kwargs.get("epoch", 9999),
-            step=kwargs.get("step", 9999),
+            epoch=kwargs.get("epoch", None),
+            step=kwargs.get("step", None),
             accuracy=accuracy,
             precision={
                 "weighted": prec_w,
-                "micro": prec_micro,
                 "macro": prec_macro
             },
             recall={
                 "weighted": recall_w,
-                "micro": recall_micro,
                 "macro": recall_macro
             },
             f1={
                 "weighted": f1_w,
-                "micro": f1_micro,
                 "macro": f1_macro
             },
             loss=agg_loss
@@ -105,7 +106,6 @@ def evaluate_perf(
             logging.info(f"{prefix} loss: {agg_loss:.10f}")
         logging.info(f"{prefix} accuracy: {accuracy:.10f}")
         logging.info(f"{prefix} weighted precision: {prec_w:.10f}, recall: {recall_w:.10f}, f1: {f1_w:.10f}")
-        logging.info(f"{prefix} micro precision: {prec_micro:.10f}, recall: {recall_micro:.10f}, f1: {f1_micro:.10f}")
         logging.info(f"{prefix} macro precision: {prec_macro:.10f}, recall: {recall_macro:.10f}, f1: {f1_macro:.10f}")
         logging.info(f"{prefix} bleu: {bleu_score if 'bleu' in kwargs else 'N/A'}")
         logging.info(f"{prefix} rouge: {rouge_score if 'rouge' in kwargs else 'N/A'}")

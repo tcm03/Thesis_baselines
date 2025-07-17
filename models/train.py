@@ -413,6 +413,7 @@ def train():
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args)
     train_dataset = data_module["train_dataset"]
     eval_dataset = data_module["eval_dataset"]
+    test_dataset = data_module["test_dataset"]
     data_collator = data_module["data_collator"]
 
     assert training_args.group_by_modality_length is True, "Group by modality length must be True"
@@ -424,11 +425,17 @@ def train():
         generator=generator,
         group_by_modality=training_args.group_by_modality_length,
     )
-    # log_rank0(f"[DBG] just built sampler: gen={gen_hex(generator)}")
     eval_sampler = LengthGroupedSampler(
         batch_size=training_args.per_device_eval_batch_size,
         world_size=ddp_world_size,
         lengths=eval_dataset.modality_lengths,
+        generator=generator,
+        group_by_modality=training_args.group_by_modality_length,
+    )
+    test_sampler = LengthGroupedSampler(
+        batch_size=training_args.per_device_eval_batch_size,
+        world_size=ddp_world_size,
+        lengths=test_dataset.modality_lengths,
         generator=generator,
         group_by_modality=training_args.group_by_modality_length,
     )
@@ -444,6 +451,14 @@ def train():
         eval_dataset,
         batch_size=training_args.per_device_eval_batch_size,
         sampler=eval_sampler,
+        collate_fn=data_collator,
+        pin_memory=True,
+        drop_last=True, # per-device eval batch size = 1 so we won't miss too many samples
+    )
+    test_dataloader = DataLoader(
+        test_dataset,
+        batch_size=training_args.per_device_eval_batch_size,
+        sampler=test_sampler,
         collate_fn=data_collator,
         pin_memory=True,
         drop_last=True, # per-device eval batch size = 1 so we won't miss too many samples
@@ -721,6 +736,99 @@ def train():
                         epoch_seed=epoch_seed,
                     )
         
+    test_perf_log_fpath = os.path.join(training_args.output_dir, training_args.test_perf_log)
+    test_log_fpath = os.path.join(training_args.output_dir, training_args.test_log)
+    test_perf: List[PerfMetrics] = []
+    model.eval()
+    test_device_loss = 0.
+    test_device_samples = 0
+    test_device_preds, test_device_gold_labels = [], []
+    test_device_text_preds, test_device_text_references = [], []
+    test_video_paths = []
+    for test_batch_idx, test_batch in enumerate(test_dataloader):
+        log_rank0(f'Test batch {test_batch_idx+1}/{len(test_dataloader)}')
+
+        test_labels = test_batch["eng_classes"].to(device)
+
+        with torch.no_grad():
+            outputs = forward_step(
+                model, 
+                test_batch, 
+                device, 
+                model_args, 
+                tokenizer, 
+                eval_mode=True, 
+                cls_only=model_args.cls_only,
+                cls_loss_weight=training_args.cls_loss_weight,
+                gen_config_dict={
+                    "do_sample": False,
+                    "max_new_tokens": 256,
+                    "num_beams": 1,
+                    "use_cache": True,
+                } if training_args.generation_eval else None
+            )
+            test_logits = outputs.cls_logits
+            cur_preds = torch.argmax(test_logits, dim=-1)
+            test_device_preds.append(cur_preds)
+            test_device_gold_labels.append(test_labels)
+            loss_fnc = torch.nn.CrossEntropyLoss()
+            test_loss = loss_fnc(test_logits, test_labels)
+            test_device_loss += test_loss.item() * test_labels.shape[0]
+            test_device_samples += test_labels.shape[0]
+            if training_args.generation_eval:
+                test_device_text_preds.extend(outputs["preds"])
+                test_device_text_references.extend(test_batch["responses"])
+            test_video_paths.extend(test_batch["video_paths"])
+
+    if master_process and training_args.generation_eval:
+        # logging.info(f"Test video paths: {test_video_paths}")
+        # @tcm: At the moment, print out predicted label and generated text for each video in the test set.
+        assert len(test_video_paths) == len(test_device_text_preds) and len(test_video_paths) == len(test_device_preds), "need equal"
+        test_logs: List[EvalProgressLog] = []
+        for video_path, cls_pred, gen_pred in zip(test_video_paths, test_device_preds, test_device_text_preds):
+            test_logs.append(EvalProgressLog(
+                epoch=None,
+                step=None,
+                video_path=video_path,
+                cls_pred=cls_pred.item(),
+                gen_pred=gen_pred
+            ))
+        cur_test_log_fname = os.path.basename(test_log_fpath).split(".")[0] + f"-testfinal.json"
+        cur_test_log_fdir = os.path.dirname(test_log_fpath)
+        cur_test_log_fpath = os.path.join(cur_test_log_fdir, cur_test_log_fname)
+        with open(cur_test_log_fpath, "w") as f:
+            json_test_logs = [log.to_dict() for log in test_logs]
+            json.dump(json_test_logs, f, indent=4)
+
+    test_gathered_preds = [None for _ in range(ddp_world_size)] if master_process else None
+    test_gathered_references = [None for _ in range(ddp_world_size)] if master_process else None
+    if training_args.generation_eval:
+        dist.gather_object(test_device_text_preds, test_gathered_preds, dst=0)
+        dist.gather_object(test_device_text_references, test_gathered_references, dst=0)
+    if master_process and training_args.generation_eval:
+        # flatten
+        test_gathered_preds = [pred for rank_preds in test_gathered_preds for pred in rank_preds]
+        test_gathered_references = [ref for rank_refs in test_gathered_references for ref in rank_refs]
+    text_evaluators = {}
+    if training_args.generation_eval:
+        text_evaluators = {"bleu": bleu, "rouge": rouge, "meteor": meteor, "bertscore": bertscore}
+    test_perf_log = evaluate_perf(
+        device_loss=test_device_loss,
+        device_samples=test_device_samples,
+        device_preds=test_device_preds,
+        device_gold_labels=test_device_gold_labels,
+        predictions=test_gathered_preds if training_args.generation_eval else None,
+        references=test_gathered_references if training_args.generation_eval else None,
+        prefix="Test",
+        **text_evaluators
+    )
+    if test_perf_log is not None:
+        # only on master process
+        test_perf.append(test_perf_log)
+        with open(test_perf_log_fpath, "w") as f:
+            json_test_perf = [perf.to_dict() for perf in test_perf]
+            json.dump(json_test_perf, f, indent=4)
+    
     if ddp:
         destroy_process_group()
 
