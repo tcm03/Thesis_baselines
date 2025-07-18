@@ -3,10 +3,13 @@ PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
 TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_train_engcaption_cls.json"
 EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_val_engcaption_cls.json"
 TEST_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_test_engcaption_cls.json"
+# TRAIN_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_nano_train_engcls.json"
+# EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_nano_val_engcls.json"
+# TEST_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_nano_test_engcaption_cls.json"
 
-OUTPUT_DIR="./checkpoints/final_txtcls"
+OUTPUT_DIR="./checkpoints/final_txtcls_txteval_0"
 
-CKPT_NAME="final_txtcls"
+CKPT_NAME="final_txtcls_txteval_0"
 # PREV_STAGE_CHECKPOINT="./checkpoints/longvu_llama_snapugc0_txtcls_test0/longvu_llama_snapugc0_txtcls_test0-epoch0-step378.pt"
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
@@ -20,12 +23,12 @@ torchrun --nproc_per_node=4 --master_port=29505 models/train.py \
   --train_paths $TRAIN_PATHS \
   --eval_paths $EVAL_PATHS \
   --test_paths $TEST_PATHS \
-  --train_log "final_txtcls_train_log.json" \
-  --train_perf_log "final_txtcls_train_perf.json" \
-  --eval_perf_log "final_txtcls_eval_perf.json" \
-  --eval_log "final_txtcls_eval_log.json" \
-  --test_perf_log "final_txtcls_test_perf.json" \
-  --test_log "final_txtcls_test_log.json" \
+  --train_log "final_txtcls_txteval_train_log.json" \
+  --train_perf_log "final_txtcls_txteval_train_perf.json" \
+  --eval_perf_log "final_txtcls_txteval_eval_perf.json" \
+  --eval_log "final_txtcls_txteval_eval_log.json" \
+  --test_perf_log "final_txtcls_txteval_test_perf.json" \
+  --test_log "final_txtcls_txteval_test_log.json" \
   --model_max_length 8192 \
   --fp16 False \
   --bf16 True \
@@ -49,7 +52,7 @@ torchrun --nproc_per_node=4 --master_port=29505 models/train.py \
   --freeze_mm_mlp_adapter False \
   --freeze_backbone True \
   --gradient_checkpointing True \
-  --generation_eval False \
+  --generation_eval True \
   --mm_projector_type sva \
   --image_token_len 144 \
   --query_num_list "[144]" \

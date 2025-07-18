@@ -9,3 +9,4 @@ models/__pycache__/
 images/
 pycocoevalcap/
 pycocotools/
+evalcap/__pycache__/

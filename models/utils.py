@@ -59,3 +59,70 @@ def seed_worker(worker_id):
 
 def gen_hex(gen: torch.Generator) -> str:
     return hashlib.sha1(gen.get_state().cpu().numpy().tobytes()).hexdigest()[:12]
+
+class QualitativeSample:
+
+    def __init__(
+        self,
+        video_path: str,
+        cls_pred: int,
+        gold_label: int,
+        loss: float,
+    ):
+        self.video_path = video_path
+        self.cls_pred = cls_pred
+        self.gold_label = gold_label
+        self.loss = loss
+
+    def to_dict(self):
+        return {
+            "video_path": self.video_path,
+            "cls_pred": self.cls_pred,
+            "gold_label": self.gold_label,
+            "loss": self.loss,
+        }
+
+class TopKSelector:
+
+    def __init__(
+        self, 
+        k: int,
+        init_instances: list = None,
+        eval_func: callable = None,
+    ):
+        # assert to check that eval_func must be provided and callable
+        if eval_func is None:
+            raise ValueError("eval_func must be provided and callable")
+        if not callable(eval_func):
+            raise ValueError("eval_func must be a callable function")
+        if init_instances is not None:
+            assert type(init_instances) == list or type(init_instances) == tuple, "init_instances must be a list or tuple"                
+            for i in range(1, len(init_instances)):
+                if eval_func(init_instances[i]) > eval_func(init_instances[i-1]):
+                    raise ValueError("init_instances must be sorted in non-increasing order according to eval_func")
+        
+        self.k = k
+        self.instances = init_instances if init_instances is not None else []
+        self.eval_func = eval_func
+
+    def add(self, instance) -> bool:
+        if len(self.instances) > 0 and type(instance) != type(self.instances[0]):
+            raise TypeError("instance must be of the same type as instances in the selector")
+        is_inserted = False
+        for i in range(len(self.instances)):
+            if self.eval_func(instance) >= self.eval_func(self.instances[i]):
+                # insert instance at position i
+                self.instances.insert(i, instance)
+                self.instances = self.instances[:self.k]
+                is_inserted = True
+                break
+        if is_inserted is False and len(self.instances) < self.k:
+            self.instances.append(instance)
+            is_inserted = True
+        return is_inserted
+
+    def __len__(self):
+        return len(self.instances)
+
+    def get_instances(self):
+        return self.instances

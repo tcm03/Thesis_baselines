@@ -31,7 +31,7 @@ from supervised_dataset import make_supervised_data_module
 from grouped_sampler import LengthGroupedSampler
 from opti import get_optimizer
 from train_log import *
-from models.utils import count_parameters, log_rank0, seed_worker, gen_hex
+from models.utils import *
 from models.train_ckpt import *
 from models.eval import *
 
@@ -141,6 +141,7 @@ def forward_step(
                 attention_mask=attention_mask,
                 images=images,
                 image_sizes=image_sizes,
+                top_p=None if not gen_config_dict.get("do_sample", False) else 0.9,
                 do_sample=gen_config_dict.get("do_sample", False),
                 temperature=gen_config_dict.get("temperature", 1.),
                 max_new_tokens=gen_config_dict.get("max_new_tokens", 128),
@@ -234,6 +235,8 @@ def train():
     )
     tokenizer.pad_token = "<|reserved_special_token_0|>"
     tokenizer.pad_token_id = 128002
+    model.config.pad_token_id = tokenizer.pad_token_id # prevent warning "Setting pad_token_id to eos_token_id:128001 for open-end generation." during generating
+    model.generation_config.pad_token_id = tokenizer.pad_token_id  # future-proof
     conversation_lib.default_conversation = conversation_lib.conv_templates[
         model_args.version
     ]
@@ -493,11 +496,11 @@ def train():
     train_logs: List[TrainProgressLog] = []
     train_perf: List[PerfMetrics] = []
     eval_perf: List[PerfMetrics] = []
-    if training_args.generation_eval:
-        bleu = evaluate.load("bleu")
-        rouge = evaluate.load("rouge")
-        meteor = evaluate.load("meteor")
-        bertscore = evaluate.load("bertscore")
+    # if training_args.generation_eval:
+    #     bleu = evaluate.load("bleu")
+    #     rouge = evaluate.load("rouge")
+    #     meteor = evaluate.load("meteor")
+    #     bertscore = evaluate.load("bertscore")
 
     log_rank0("Starting training")
     for epoch in range(from_epoch, num_epochs):
@@ -590,7 +593,7 @@ def train():
                 if epoch == num_epochs - 1 and batch_idx == len(train_dataloader) - 1:
                     do_eval = True
                 if do_eval:
-                    # evaluate on the training fraction first
+                    # evaluate on the training fraction first, for classification only
                     train_perf_log = evaluate_perf(
                         device_preds=train_device_preds,
                         device_gold_labels=train_device_gold_labels,
@@ -613,6 +616,7 @@ def train():
                     
                     eval_device_loss = 0.
                     eval_device_samples = 0
+                    eval_device_logits = []
                     eval_device_preds, eval_device_gold_labels = [], []
                     eval_device_text_preds, eval_device_text_references = [], []
                     eval_video_paths = []
@@ -640,6 +644,7 @@ def train():
                             )
                             eval_logits = outputs.cls_logits
                             cur_preds = torch.argmax(eval_logits, dim=-1)
+                            eval_device_logits.append(eval_logits)
                             eval_device_preds.append(cur_preds)
                             eval_device_gold_labels.append(eval_labels)
                             loss_fnc = torch.nn.CrossEntropyLoss()
@@ -650,53 +655,69 @@ def train():
                                 eval_device_text_preds.extend(outputs["preds"])
                                 eval_device_text_references.extend(eval_batch["responses"])
                             eval_video_paths.extend(eval_batch["video_paths"])
-
-                    if master_process and training_args.generation_eval:
-                        # logging.info(f"Eval video paths: {eval_video_paths}")
-                        # @tcm: At the moment, print out predicted label and generated text for each video in the eval set.
-                        assert len(eval_video_paths) == len(eval_device_text_preds) and len(eval_video_paths) == len(eval_device_preds), "need equal"
-                        eval_logs: List[EvalProgressLog] = []
-                        for video_path, cls_pred, gen_pred in zip(eval_video_paths, eval_device_preds, eval_device_text_preds):
-                            eval_logs.append(EvalProgressLog(
-                                epoch=epoch + (batch_idx+1) / len(train_dataloader),
-                                step=global_steps,
-                                video_path=video_path,
-                                cls_pred=cls_pred.item(),
-                                gen_pred=gen_pred
-                            ))
-                        cur_eval_log_fname = os.path.basename(eval_log_fpath).split(".")[0] + f"-epoch{epoch}-step{global_steps}.json"
-                        cur_eval_log_fdir = os.path.dirname(eval_log_fpath)
-                        cur_eval_log_fpath = os.path.join(cur_eval_log_fdir, cur_eval_log_fname)
-                        with open(cur_eval_log_fpath, "w") as f:
-                            json_eval_logs = [log.to_dict() for log in eval_logs]
-                            json.dump(json_eval_logs, f, indent=4)
-
-                    eval_gathered_preds = [None for _ in range(ddp_world_size)] if master_process else None
+                    
+                    eval_gathered_text_preds = [None for _ in range(ddp_world_size)] if master_process else None
                     eval_gathered_references = [None for _ in range(ddp_world_size)] if master_process else None
+                    eval_gathered_video_paths = [None for _ in range(ddp_world_size)] if master_process else None
+                    eval_gathered_cls_preds = [None for _ in range(ddp_world_size)] if master_process else None
+                    eval_gathered_gold_labels = [None for _ in range(ddp_world_size)] if master_process else None
+                    eval_gathered_cls_logits = [None for _ in range(ddp_world_size)] if master_process else None
                     if training_args.generation_eval:
-                        dist.gather_object(eval_device_text_preds, eval_gathered_preds, dst=0)
+                        # gather predictions and metadata from all processes to the master rank
+                        dist.gather_object(eval_device_text_preds, eval_gathered_text_preds, dst=0)
                         dist.gather_object(eval_device_text_references, eval_gathered_references, dst=0)
-                    if master_process and training_args.generation_eval:
-                        # flatten
-                        eval_gathered_preds = [pred for rank_preds in eval_gathered_preds for pred in rank_preds]
-                        eval_gathered_references = [ref for rank_refs in eval_gathered_references for ref in rank_refs]
-                    text_evaluators = {}
-                    if training_args.generation_eval:
-                        text_evaluators = {"bleu": bleu, "rouge": rouge, "meteor": meteor, "bertscore": bertscore}
+                        dist.gather_object(eval_video_paths, eval_gathered_video_paths, dst=0)
+                        dist.gather_object(eval_device_preds, eval_gathered_cls_preds, dst=0)
+                        dist.gather_object(eval_device_gold_labels, eval_gathered_gold_labels, dst=0)
+                        dist.gather_object(eval_device_logits, eval_gathered_cls_logits, dst=0)
+                        if master_process:
+                            # flatten
+                            eval_gathered_text_preds = [pred for rank_preds in eval_gathered_text_preds for pred in rank_preds]
+                            eval_gathered_references = [ref for rank_refs in eval_gathered_references for ref in rank_refs]
+                            eval_gathered_video_paths = [path for rank_paths in eval_gathered_video_paths for path in rank_paths]
+                            eval_gathered_cls_preds = [pred for rank_preds in eval_gathered_cls_preds for pred in rank_preds]
+                            eval_gathered_gold_labels = [label for rank_labels in eval_gathered_gold_labels for label in rank_labels]
+                            eval_gathered_cls_logits = [logit for rank_logits in eval_gathered_cls_logits for logit in rank_logits]
+                            # @tcm: At the moment, print out predicted label and generated text for each video in the eval set.
+                            assert len(eval_gathered_video_paths) == len(eval_gathered_text_preds) and len(eval_gathered_video_paths) == len(eval_gathered_cls_preds) and len(eval_gathered_video_paths) == len(eval_gathered_references) and len(eval_gathered_video_paths) == len(eval_gathered_gold_labels) and len(eval_gathered_video_paths) == len(eval_gathered_cls_logits), "need equal"
+                            eval_logs: List[EvalProgressLog] = []
+                            for video_path, cls_pred, gen_pred, ref, gold, logits in zip(eval_gathered_video_paths, eval_gathered_cls_preds, eval_gathered_text_preds, eval_gathered_references, eval_gathered_gold_labels, eval_gathered_cls_logits):
+                                eval_logs.append(EvalProgressLog(
+                                    epoch=epoch + (batch_idx+1) / len(train_dataloader),
+                                    step=global_steps,
+                                    video_path=video_path,
+                                    cls_logits=logits.tolist(),
+                                    cls_pred=int(cls_pred.item()),
+                                    gold_label=int(gold.item()),
+                                    gen_pred=gen_pred,
+                                    reference=ref
+                                ))
+                            cur_eval_log_fname = os.path.basename(eval_log_fpath).split(".")[0] + f"-epoch{epoch}-step{global_steps}.json"
+                            cur_eval_log_fdir = os.path.dirname(eval_log_fpath)
+                            cur_eval_log_fpath = os.path.join(cur_eval_log_fdir, cur_eval_log_fname)
+                            with open(cur_eval_log_fpath, "w") as f:
+                                json_eval_logs = [log.to_dict() for log in eval_logs]
+                                json.dump(json_eval_logs, f, indent=4)
+
+                    
+                    
+                    
+                    # text_evaluators = {}
+                    # if training_args.generation_eval:
+                    #     text_evaluators = {"bleu": bleu, "rouge": rouge, "meteor": meteor, "bertscore": bertscore}
+                    # [2025-07-17] @tcm: evaluate_perf() can gather by itself
                     eval_perf_log = evaluate_perf(
                         device_loss=eval_device_loss,
                         device_samples=eval_device_samples,
                         device_preds=eval_device_preds,
                         device_gold_labels=eval_device_gold_labels,
-                        predictions=eval_gathered_preds if training_args.generation_eval else None,
-                        references=eval_gathered_references if training_args.generation_eval else None,
                         prefix="Eval",
                         epoch=epoch + (batch_idx+1) / len(train_dataloader),
                         step=global_steps,
-                        **text_evaluators
                     )
                     if eval_perf_log is not None:
                         # only on master process
+                        assert master_process, "eval_perf_log should only be logged on master process"
                         eval_perf.append(eval_perf_log)
                         with open(eval_perf_log_fpath, "w") as f:
                             json_eval_perf = [perf.to_dict() for perf in eval_perf]
@@ -738,13 +759,22 @@ def train():
         
     test_perf_log_fpath = os.path.join(training_args.output_dir, training_args.test_perf_log)
     test_log_fpath = os.path.join(training_args.output_dir, training_args.test_log)
-    test_perf: List[PerfMetrics] = []
     model.eval()
     test_device_loss = 0.
     test_device_samples = 0
+    test_device_logits = []
     test_device_preds, test_device_gold_labels = [], []
     test_device_text_preds, test_device_text_references = [], []
     test_video_paths = []
+
+    # qualitative analysis
+    eval_func = lambda x: x.loss
+    num_qualitative_samples = 52
+    correct_best_selector = TopKSelector(num_qualitative_samples//ddp_world_size, eval_func=eval_func)
+    correct_just_selector = TopKSelector(num_qualitative_samples//ddp_world_size, eval_func=eval_func)
+    incorrect_just_selector = TopKSelector(num_qualitative_samples//ddp_world_size, eval_func=eval_func)
+    incorrect_worst_selector = TopKSelector(num_qualitative_samples//ddp_world_size, eval_func=eval_func)
+
     for test_batch_idx, test_batch in enumerate(test_dataloader):
         log_rank0(f'Test batch {test_batch_idx+1}/{len(test_dataloader)}')
 
@@ -769,10 +799,32 @@ def train():
             )
             test_logits = outputs.cls_logits
             cur_preds = torch.argmax(test_logits, dim=-1)
+            test_device_logits.append(test_logits)
             test_device_preds.append(cur_preds)
             test_device_gold_labels.append(test_labels)
             loss_fnc = torch.nn.CrossEntropyLoss()
             test_loss = loss_fnc(test_logits, test_labels)
+            cur_sample = QualitativeSample(
+                video_path=test_batch["video_paths"][0],
+                cls_pred=int(cur_preds.item()),
+                gold_label=int(test_labels.item()),
+                loss=test_loss.item(),
+            )
+            neg_cur_sample = QualitativeSample(
+                video_path=test_batch["video_paths"][0],
+                cls_pred=int(cur_preds.item()),
+                gold_label=int(test_labels.item()),
+                loss=-test_loss.item(),
+            )
+            if cur_preds.item() == test_labels.item():
+                # among correct predictions
+                correct_just_selector.add(cur_sample) # save just correct cases
+                correct_best_selector.add(neg_cur_sample) # save best correct cases
+            else:
+                # among incorrect predictions
+                incorrect_just_selector.add(neg_cur_sample) # save just incorrect cases
+                incorrect_worst_selector.add(cur_sample) # save worst incorrect cases
+
             test_device_loss += test_loss.item() * test_labels.shape[0]
             test_device_samples += test_labels.shape[0]
             if training_args.generation_eval:
@@ -780,59 +832,108 @@ def train():
                 test_device_text_references.extend(test_batch["responses"])
             test_video_paths.extend(test_batch["video_paths"])
 
-    if master_process and training_args.generation_eval:
-        # logging.info(f"Test video paths: {test_video_paths}")
-        # @tcm: At the moment, print out predicted label and generated text for each video in the test set.
-        assert len(test_video_paths) == len(test_device_text_preds) and len(test_video_paths) == len(test_device_preds), "need equal"
-        test_logs: List[EvalProgressLog] = []
-        for video_path, cls_pred, gen_pred in zip(test_video_paths, test_device_preds, test_device_text_preds):
-            test_logs.append(EvalProgressLog(
-                epoch=None,
-                step=None,
-                video_path=video_path,
-                cls_pred=cls_pred.item(),
-                gen_pred=gen_pred
-            ))
-        cur_test_log_fname = os.path.basename(test_log_fpath).split(".")[0] + f"-testfinal.json"
+    # qualitative data gathering and saving
+    correct_best_preds = correct_best_selector.get_instances()
+    correct_just_preds = correct_just_selector.get_instances()
+    incorrect_just_preds = incorrect_just_selector.get_instances()
+    incorrect_worst_preds = incorrect_worst_selector.get_instances()
+    gathered_correct_best_preds = [None for _ in range(ddp_world_size)] if master_process else None
+    gathered_correct_just_preds = [None for _ in range(ddp_world_size)] if master_process else None
+    gathered_incorrect_just_preds = [None for _ in range(ddp_world_size)] if master_process else None
+    gathered_incorrect_worst_preds = [None for _ in range(ddp_world_size)] if master_process else None
+    dist.gather_object(correct_best_preds, gathered_correct_best_preds, dst=0)
+    dist.gather_object(correct_just_preds, gathered_correct_just_preds, dst=0)
+    dist.gather_object(incorrect_just_preds, gathered_incorrect_just_preds, dst=0)
+    dist.gather_object(incorrect_worst_preds, gathered_incorrect_worst_preds, dst=0)
+    if master_process:
+        # flatten
+        gathered_correct_best_preds = [pred for rank_preds in gathered_correct_best_preds for pred in rank_preds]
+        gathered_correct_just_preds = [pred for rank_preds in gathered_correct_just_preds for pred in rank_preds]
+        gathered_incorrect_just_preds = [pred for rank_preds in gathered_incorrect_just_preds for pred in rank_preds]
+        gathered_incorrect_worst_preds = [pred for rank_preds in gathered_incorrect_worst_preds for pred in rank_preds]
+        cur_test_log_fname = os.path.basename(test_log_fpath).split(".")[0] + f"-qualitative.json"
         cur_test_log_fdir = os.path.dirname(test_log_fpath)
         cur_test_log_fpath = os.path.join(cur_test_log_fdir, cur_test_log_fname)
         with open(cur_test_log_fpath, "w") as f:
-            json_test_logs = [log.to_dict() for log in test_logs]
+            json_test_logs = {
+                "correct_best": [sample.to_dict() for sample in gathered_correct_best_preds],
+                "correct_just": [sample.to_dict() for sample in gathered_correct_just_preds],
+                "incorrect_just": [sample.to_dict() for sample in gathered_incorrect_just_preds],
+                "incorrect_worst": [sample.to_dict() for sample in gathered_incorrect_worst_preds],
+            }
             json.dump(json_test_logs, f, indent=4)
 
-    test_gathered_preds = [None for _ in range(ddp_world_size)] if master_process else None
-    test_gathered_references = [None for _ in range(ddp_world_size)] if master_process else None
+    # gather generated description
+    test_gathered_text_preds = [None for _ in range(ddp_world_size)] if master_process else None
+    test_gathered_text_references = [None for _ in range(ddp_world_size)] if master_process else None
+    text_gathered_video_paths = [None for _ in range(ddp_world_size)] if master_process else None
+    test_gathered_cls_preds = [None for _ in range(ddp_world_size)] if master_process else None
+    test_gathered_gold_labels = [None for _ in range(ddp_world_size)] if master_process else None
+    test_gathered_logits = [None for _ in range(ddp_world_size)] if master_process else None
     if training_args.generation_eval:
-        dist.gather_object(test_device_text_preds, test_gathered_preds, dst=0)
-        dist.gather_object(test_device_text_references, test_gathered_references, dst=0)
-    if master_process and training_args.generation_eval:
-        # flatten
-        test_gathered_preds = [pred for rank_preds in test_gathered_preds for pred in rank_preds]
-        test_gathered_references = [ref for rank_refs in test_gathered_references for ref in rank_refs]
-    text_evaluators = {}
-    if training_args.generation_eval:
-        text_evaluators = {"bleu": bleu, "rouge": rouge, "meteor": meteor, "bertscore": bertscore}
+        # gather predictions and metadata from all processes to the master rank
+        dist.gather_object(test_device_text_preds, test_gathered_text_preds, dst=0)
+        dist.gather_object(test_device_text_references, test_gathered_text_references, dst=0)
+        dist.gather_object(test_video_paths, text_gathered_video_paths, dst=0)
+        dist.gather_object(test_device_preds, test_gathered_cls_preds, dst=0)
+        dist.gather_object(test_device_gold_labels, test_gathered_gold_labels, dst=0)
+        dist.gather_object(test_device_logits, test_gathered_logits, dst=0)
+        if master_process:
+            # flatten
+            test_gathered_text_preds = [pred for rank_preds in test_gathered_text_preds for pred in rank_preds]
+            test_gathered_text_references = [ref for rank_refs in test_gathered_text_references for ref in rank_refs]
+            text_gathered_video_paths = [path for rank_paths in text_gathered_video_paths for path in rank_paths]
+            test_gathered_cls_preds = [pred for rank_preds in test_gathered_cls_preds for pred in rank_preds]
+            test_gathered_gold_labels = [label for rank_labels in test_gathered_gold_labels for label in rank_labels]
+            test_gathered_logits = [logits for rank_logits in test_gathered_logits for logits in rank_logits]
+            # @tcm: At the moment, print out predicted label and generated text for each video in the test set.
+            assert len(text_gathered_video_paths) == len(test_gathered_text_preds) and len(text_gathered_video_paths) == len(test_gathered_cls_preds) and len(text_gathered_video_paths) == len(test_gathered_text_references) and len(text_gathered_video_paths) == len(test_gathered_gold_labels) and len(text_gathered_video_paths) == len(test_gathered_logits), "need equal"
+            test_logs: List[EvalProgressLog] = []
+            for video_path, cls_pred, gen_pred, ref, gold, logits in zip(text_gathered_video_paths, test_gathered_cls_preds, test_gathered_text_preds, test_gathered_text_references, test_gathered_gold_labels, test_gathered_logits):
+                test_logs.append(EvalProgressLog(
+                    epoch=None,
+                    step=None,
+                    video_path=video_path,
+                    cls_logits=logits.tolist(),
+                    cls_pred=int(cls_pred.item()),
+                    gold_label=int(gold.item()),
+                    gen_pred=gen_pred,
+                    reference=ref
+                ))
+            cur_test_log_fname = os.path.basename(test_log_fpath).split(".")[0] + f"-testfinal.json"
+            cur_test_log_fdir = os.path.dirname(test_log_fpath)
+            cur_test_log_fpath = os.path.join(cur_test_log_fdir, cur_test_log_fname)
+            with open(cur_test_log_fpath, "w") as f:
+                json_test_logs = [log.to_dict() for log in test_logs]
+                json.dump(json_test_logs, f, indent=4)
+
+    # text_evaluators = {}
+    # if training_args.generation_eval:
+    #     text_evaluators = {"bleu": bleu, "rouge": rouge, "meteor": meteor, "bertscore": bertscore}
+    
+    # classification metrics evaluation on test set
     test_perf_log = evaluate_perf(
         device_loss=test_device_loss,
         device_samples=test_device_samples,
         device_preds=test_device_preds,
         device_gold_labels=test_device_gold_labels,
-        predictions=test_gathered_preds if training_args.generation_eval else None,
-        references=test_gathered_references if training_args.generation_eval else None,
         prefix="Test",
-        **text_evaluators
     )
+    # if training_args.generation_eval:
+    #     # We should do text perf check separately from training and classification evaluation
+    #     test_text_perf_log = evaluate_text(
+    #         predictions=test_gathered_preds,
+    #         references=test_gathered_references,
+    #     )
     if test_perf_log is not None:
         # only on master process
-        test_perf.append(test_perf_log)
+        assert master_process, "test_perf_log should only be logged on master process"
         with open(test_perf_log_fpath, "w") as f:
-            json_test_perf = [perf.to_dict() for perf in test_perf]
+            json_test_perf = test_perf_log.to_dict()
             json.dump(json_test_perf, f, indent=4)
     
     if ddp:
         destroy_process_group()
 
 if __name__ == "__main__":
-    # os.makedirs(SAFETENSORS_PATH, exist_ok=True)
-    # mp.set_start_method('spawn')
     train()

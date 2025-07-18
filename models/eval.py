@@ -3,7 +3,7 @@ import torch.distributed as dist
 import os
 from typing import List
 from sklearn.metrics import classification_report
-from models.train_log import PerfMetrics
+from models.train_log import ClsPerfMetrics, TextPerfMetrics
 import logging
 import numpy as np
 
@@ -12,8 +12,6 @@ def evaluate_perf(
     device_gold_labels: List[torch.Tensor],
     device_loss: float = None,
     device_samples: int = None,
-    predictions: List[str] = None,
-    references: List[str] = None,
     prefix: str = "Train",
     **kwargs
 ):
@@ -58,7 +56,7 @@ def evaluate_perf(
         recall_macro = report["macro avg"]["recall"]
         f1_macro = report["macro avg"]["f1-score"]
 
-        cur_perf = PerfMetrics(
+        cur_perf = ClsPerfMetrics(
             epoch=kwargs.get("epoch", None),
             step=kwargs.get("step", None),
             accuracy=accuracy,
@@ -77,39 +75,53 @@ def evaluate_perf(
             loss=agg_loss
         )
 
-        # 1. BLEU score
-        if "bleu" in kwargs and predictions is not None and references is not None:
-            bleu = kwargs["bleu"]
-            bleu_score = bleu.compute(predictions=predictions, references=[[ref] for ref in references])
-            cur_perf.bleu = bleu_score
-        # 2. ROUGE score
-        if "rouge" in kwargs and predictions is not None and references is not None:
-            rouge = kwargs["rouge"]
-            rouge_score = rouge.compute(predictions=predictions, references=references)
-            cur_perf.rouge = rouge_score
-        # 3. Meteor score
-        if "meteor" in kwargs and predictions is not None and references is not None:
-            meteor = kwargs["meteor"]
-            meteor_score = meteor.compute(predictions=predictions, references=references)
-            cur_perf.meteor = meteor_score
-        # 4. BERTScore
-        if "bertscore" in kwargs and predictions is not None and references is not None:
-            bertscore = kwargs["bertscore"]
-            bertscore_score = bertscore.compute(predictions=predictions, references=references, lang="en")
-            # aggregate mean precision, recall and f1 of bertscore
-            bertscore_score["precision"] = float(np.mean(bertscore_score["precision"]))
-            bertscore_score["recall"] = float(np.mean(bertscore_score["recall"]))
-            bertscore_score["f1"] = float(np.mean(bertscore_score["f1"]))
-            cur_perf.bertscore = bertscore_score
-
         if agg_loss is not None:
             logging.info(f"{prefix} loss: {agg_loss:.10f}")
         logging.info(f"{prefix} accuracy: {accuracy:.10f}")
         logging.info(f"{prefix} weighted precision: {prec_w:.10f}, recall: {recall_w:.10f}, f1: {f1_w:.10f}")
         logging.info(f"{prefix} macro precision: {prec_macro:.10f}, recall: {recall_macro:.10f}, f1: {f1_macro:.10f}")
-        logging.info(f"{prefix} bleu: {bleu_score if 'bleu' in kwargs else 'N/A'}")
-        logging.info(f"{prefix} rouge: {rouge_score if 'rouge' in kwargs else 'N/A'}")
-        logging.info(f"{prefix} meteor: {meteor_score if 'meteor' in kwargs else 'N/A'}")
-        logging.info(f"{prefix} bertscore: {bertscore_score if 'bertscore' in kwargs else 'N/A'}")
 
+    return cur_perf
+
+
+def evaluate_text(
+    predictions: List[str] = None,
+    references: List[str] = None,
+    prefix: str = "Train",
+    **kwargs
+):
+    ## NOTE: You have to gather predictions and references before
+    cur_perf = TextPerfMetrics(
+        epoch=kwargs.get("epoch", None),
+        step=kwargs.get("step", None),
+    )
+    # 1. BLEU score
+    if "bleu" in kwargs and predictions is not None and references is not None:
+        bleu = kwargs["bleu"]
+        bleu_score = bleu.compute(predictions=predictions, references=[[ref] for ref in references])
+        cur_perf.bleu = bleu_score
+    # 2. ROUGE score
+    if "rouge" in kwargs and predictions is not None and references is not None:
+        rouge = kwargs["rouge"]
+        rouge_score = rouge.compute(predictions=predictions, references=references)
+        cur_perf.rouge = rouge_score
+    # 3. Meteor score
+    if "meteor" in kwargs and predictions is not None and references is not None:
+        meteor = kwargs["meteor"]
+        meteor_score = meteor.compute(predictions=predictions, references=references)
+        cur_perf.meteor = meteor_score
+    # 4. BERTScore
+    if "bertscore" in kwargs and predictions is not None and references is not None:
+        bertscore = kwargs["bertscore"]
+        bertscore_score = bertscore.compute(predictions=predictions, references=references, lang="en")
+        # aggregate mean precision, recall and f1 of bertscore
+        bertscore_score["precision"] = float(np.mean(bertscore_score["precision"]))
+        bertscore_score["recall"] = float(np.mean(bertscore_score["recall"]))
+        bertscore_score["f1"] = float(np.mean(bertscore_score["f1"]))
+        cur_perf.bertscore = bertscore_score
+
+    logging.info(f"{prefix} bleu: {bleu_score if 'bleu' in kwargs else 'N/A'}")
+    logging.info(f"{prefix} rouge: {rouge_score if 'rouge' in kwargs else 'N/A'}")
+    logging.info(f"{prefix} meteor: {meteor_score if 'meteor' in kwargs else 'N/A'}")
+    logging.info(f"{prefix} bertscore: {bertscore_score if 'bertscore' in kwargs else 'N/A'}")
     return cur_perf

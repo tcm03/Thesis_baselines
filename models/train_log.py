@@ -1,4 +1,5 @@
-from typing import Dict, Any, Optional
+import torch
+from typing import Dict, Any, Optional, Union
 
 class TrainProgressLog:
     def __init__(
@@ -37,7 +38,7 @@ class TrainProgressLog:
             "gen_pred": self.gen_pred
         }
 
-class PerfMetrics:
+class ClsPerfMetrics:
     def __init__(
         self, 
         accuracy: float, 
@@ -59,10 +60,6 @@ class PerfMetrics:
         self.recall = recall
         self.f1 = f1
         self.loss = loss
-        self.bleu = bleu
-        self.rouge = rouge
-        self.meteor = meteor
-        self.bertscore = bertscore
 
     def to_dict(self) -> Dict[str, Any]:
         return_dict = {
@@ -72,13 +69,37 @@ class PerfMetrics:
             "precision": self.precision,
             "recall": self.recall,
             "f1": self.f1,
+        }
+        if self.loss is not None:
+            return_dict["loss"] = self.loss
+        return return_dict
+
+class TextPerfMetrics:
+    def __init__(
+        self, 
+        bleu: Dict[str, Any] = None,
+        rouge: Dict[str, Any] = None,
+        meteor: Dict[str, Any] = None,
+        bertscore: Dict[str, Any] = None,
+        epoch: Optional[float] = None,
+        step: Optional[int] = None,
+    ):
+        self.epoch = epoch
+        self.step = step
+        self.bleu = bleu
+        self.rouge = rouge
+        self.meteor = meteor
+        self.bertscore = bertscore
+
+    def to_dict(self) -> Dict[str, Any]:
+        return_dict = {
+            "epoch": self.epoch,
+            "step": self.step,
             "bleu": self.bleu,
             "rouge": self.rouge,
             "meteor": self.meteor,
             "bertscore": self.bertscore
         }
-        if self.loss is not None:
-            return_dict["loss"] = self.loss
         return return_dict
 
 class EvalProgressLog:
@@ -88,20 +109,29 @@ class EvalProgressLog:
         epoch: float,
         step: int,
         video_path: str,
-        cls_pred: str,
-        gen_pred: str
+        cls_logits: Union[list, torch.Tensor],
+        cls_pred: int,
+        gold_label: int,
+        gen_pred: str,
+        reference: str
     ):
         self.epoch = epoch
         self.step = step
         self.video_path = video_path
+        self.cls_logits = cls_logits
         self.cls_pred = cls_pred
+        self.gold_label = gold_label
         self.gen_pred = gen_pred
+        self.reference = reference
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "epoch": self.epoch,
             "step": self.step,
             "video_path": self.video_path,
+            "cls_logits": self.cls_logits.tolist() if isinstance(self.cls_logits, torch.Tensor) else self.cls_logits,
             "cls_pred": self.cls_pred,
-            "gen_pred": self.gen_pred
+            "gold_label": self.gold_label,
+            "gen_pred": self.gen_pred,
+            "reference": self.reference
         }
