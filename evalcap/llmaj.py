@@ -7,8 +7,8 @@ import time
 from typing import List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-DATA_PATH = "/media02/nthuy/Thesis_baselines/checkpoints/test_txtcls_txteval/final_txtcls_eval_log-epoch1-step46.json"
-OUTPUT_PATH = "/media02/nthuy/Thesis_baselines/checkpoints/test_txtcls_txteval/text-matching-epoch1-step46.json"
+DATA_PATH = "/media02/nthuy/Thesis_baselines/checkpoints/final_txtcls_txteval_0/final_txtcls_txteval_eval_log-epoch0-step760.json"
+OUTPUT_PATH = "/media02/nthuy/Thesis_baselines/checkpoints/final_txtcls_txteval_0/final_txtcls_txteval_0_clair.json"
 
 
 def evaluate_sample(client, sample) -> dict:
@@ -19,7 +19,8 @@ def evaluate_sample(client, sample) -> dict:
         client=client,
         candidates=[gen_caption],
         targets=[reference],
-        model_name="gemini-2.5-flash-lite-preview-06-17",
+        # model_name="gemini-2.5-flash-lite-preview-06-17",
+        model_name="gemini-2.0-flash-lite", # more lightweight for unimportant runs to save cost
         max_retries=5,
         backoff_factor=1.0,
         max_tokens=256,

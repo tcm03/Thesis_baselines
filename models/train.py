@@ -187,7 +187,6 @@ def train():
         (ModelArguments, DataArguments, CustomTrainingArguments)
     )
     model_args, data_args, training_args = parser.parse_args_into_dataclasses()
-    dist.barrier()
 
     if training_args.bf16 and training_args.fp16:
         raise ValueError("Cannot use both bf16 and fp16")
@@ -355,7 +354,6 @@ def train():
         model.to(torch.bfloat16)
     elif training_args.fp16:
         model.to(torch.float16)
-    model.to(device)
     # pyre-fixme
     def convert_bn_to_float(model):
         if isinstance(model, torch.nn.modules.batchnorm._BatchNorm):
@@ -365,6 +363,7 @@ def train():
         return model
 
     model = convert_bn_to_float(model)
+    model.to(device)
     if master_process:
         count_parameters(model, print_layers = True)
     if ddp:
@@ -388,10 +387,12 @@ def train():
             training_args,
             model,
             generator, # load rng states
-            load_optimizer=True, 
-            load_scheduler=True
+            load_optimizer=False, 
+            load_scheduler=False
         )
-        log_rank0("Loaded checkpoint")
+        if dist.is_initialized():
+            dist.barrier() # wait for all processes to finish loading
+        log_rank0(f"Checkpoint loaded from {training_args.resume_from_checkpoint}")
         world_size = ckpt["world_size"]
         assert world_size == ddp_world_size, f"World size mismatch: ckpt world size = {world_size} != current world size = {ddp_world_size}"
         ckpt_gradient_accumulation_steps = ckpt["gradient_accumulation_steps"]
@@ -496,11 +497,11 @@ def train():
     train_logs: List[TrainProgressLog] = []
     train_perf: List[PerfMetrics] = []
     eval_perf: List[PerfMetrics] = []
-    # if training_args.generation_eval:
-    #     bleu = evaluate.load("bleu")
-    #     rouge = evaluate.load("rouge")
-    #     meteor = evaluate.load("meteor")
-    #     bertscore = evaluate.load("bertscore")
+    if training_args.generation_eval:
+        bleu = evaluate.load("bleu")
+        rouge = evaluate.load("rouge")
+        meteor = evaluate.load("meteor")
+        bertscore = evaluate.load("bertscore")
 
     log_rank0("Starting training")
     for epoch in range(from_epoch, num_epochs):
@@ -637,7 +638,7 @@ def train():
                                 cls_loss_weight=training_args.cls_loss_weight,
                                 gen_config_dict={
                                     "do_sample": False,
-                                    "max_new_tokens": 256,
+                                    "max_new_tokens": 192,
                                     "num_beams": 1,
                                     "use_cache": True,
                                 } if training_args.generation_eval else None
@@ -759,7 +760,6 @@ def train():
         
     test_perf_log_fpath = os.path.join(training_args.output_dir, training_args.test_perf_log)
     test_log_fpath = os.path.join(training_args.output_dir, training_args.test_log)
-    model.eval()
     test_device_loss = 0.
     test_device_samples = 0
     test_device_logits = []
@@ -774,7 +774,7 @@ def train():
     correct_just_selector = TopKSelector(num_qualitative_samples//ddp_world_size, eval_func=eval_func)
     incorrect_just_selector = TopKSelector(num_qualitative_samples//ddp_world_size, eval_func=eval_func)
     incorrect_worst_selector = TopKSelector(num_qualitative_samples//ddp_world_size, eval_func=eval_func)
-
+    model.eval()
     for test_batch_idx, test_batch in enumerate(test_dataloader):
         log_rank0(f'Test batch {test_batch_idx+1}/{len(test_dataloader)}')
 
@@ -792,7 +792,7 @@ def train():
                 cls_loss_weight=training_args.cls_loss_weight,
                 gen_config_dict={
                     "do_sample": False,
-                    "max_new_tokens": 256,
+                    "max_new_tokens": 192,
                     "num_beams": 1,
                     "use_cache": True,
                 } if training_args.generation_eval else None

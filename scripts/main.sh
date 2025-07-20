@@ -7,10 +7,10 @@ TEST_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_test_engcaption_cls.json"
 # EVAL_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_nano_val_engcls.json"
 # TEST_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_nano_test_engcaption_cls.json"
 
-OUTPUT_DIR="./checkpoints/final_txtcls_txteval_0"
+OUTPUT_DIR="./checkpoints/final_txtcls_txteval_1"
 
-CKPT_NAME="final_txtcls_txteval_0"
-# PREV_STAGE_CHECKPOINT="./checkpoints/longvu_llama_snapugc0_txtcls_test0/longvu_llama_snapugc0_txtcls_test0-epoch0-step378.pt"
+CKPT_NAME="final_txtcls_txteval_1"
+# PREV_STAGE_CHECKPOINT="./checkpoints/final_txtcls_0/final_txtcls-epoch1-step1134.pt"
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
 
@@ -62,7 +62,7 @@ torchrun --nproc_per_node=4 --master_port=29505 models/train.py \
   --drop_threshold 0.8 \
   --eval_strategy "steps" \
   --eval_steps 189 \
-  --save_strategy "steps" \
+  --save_strategy "epoch" \
   --save_steps 189 \
   --logging_steps 10 \
   --num_train_epochs 2 \

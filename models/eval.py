@@ -77,9 +77,7 @@ def evaluate_perf(
 
         if agg_loss is not None:
             logging.info(f"{prefix} loss: {agg_loss:.10f}")
-        logging.info(f"{prefix} accuracy: {accuracy:.10f}")
-        logging.info(f"{prefix} weighted precision: {prec_w:.10f}, recall: {recall_w:.10f}, f1: {f1_w:.10f}")
-        logging.info(f"{prefix} macro precision: {prec_macro:.10f}, recall: {recall_macro:.10f}, f1: {f1_macro:.10f}")
+        logging.info(f"{prefix} Classification Report:\n{classification_report(gold_labels_np, preds_np)}")
 
     return cur_perf
 
