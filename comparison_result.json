@@ -1,0 +1,1270 @@
+{
+    "incorrect-incorrect": {
+        "count": 82,
+        "examples": [
+            {
+                "video_path": "test/test_0/3d9ed8cdcf451657e9b889088e9c413f.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/3805e897772ba07f084a3d50f7cb9de3.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/ed3144a678114f1870de397d36b193aa.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_2/813b8ad1ef6d4ac66f0782a58ceecbf8.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_2/b1d8c4a4b7d276afd63d33931dd4cc05.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/0c43689a944f352f7d45c57da7f80b1a.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_2/db83d76e945ef0f6ae1396bf9a665a1e.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_0/7cbfb7ed359abb4720f387af5c471f93.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_2/66181167c146100744169f82115a991a.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/87d28538c2b80c74980727f1e4ae1e03.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_0/fe0cea4427e2b0d6bb55edbfc84df03e.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_3/3819410c2e6da86b8e9e1f574788ee5c.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_0/4e258e953ae754692cd70ed352535d3e.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/5ff8401fdd5a67eb93952d894f13c613.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/2cc07810b3f869c6dd7cf5cf9b7042d5.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/153bdc65bf58ca0f0ccdc88f45553b95.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/9f65b976152d358f056d7b1527908232.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/15f327702cee4899390b3bcebce8f85d.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/7ded22e55e8b3bcb7e2771bab5e737b4.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/363536ab5fc954187128473fb897fa7b.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_3/1f34092830ef03496dbd18dd97a75de8.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_0/69cc8d547df6617b2e8329debed730e8.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/75b7296e1a16848134415397f3acda77.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_2/ed7986fa20c3d1adb45ee08290fc9bee.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_2/4ffba25b1866e836939f02d4389248b0.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_3/d479261f03a440eab5a81d57107c6721.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_2/2e37fd43b6e8d385fc9e76e432109651.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/dbdadf663f1505f9e67f6a102bb35706.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_2/59852d79180814fcfb398bd6034b336b.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_0/a50769324bb6017d0f0e0625d7285602.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_1/b266c057a4843b731c2cc67dcf533573.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/336195f09105963e7741b1f79f25be81.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/682cdaa4f38c874aff724f2a39f6130e.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/0773f1ebfa6f95d2fb0ecb7af79e1dec.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/3be4fe7876b66ea3f07f300ccc82e61d.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/2a50ace673767097d1ee07c9a86e6f12.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/47715417eae4c31cca1d20668a2627ab.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/92352ca0093e4661786cb0a3cd677730.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/d53dcdeeaf6ca554f88e3da488fc2004.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/40ac4b2503229ed7cecb7c24cb4f1310.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_2/63b2b6b17d57dcb830b991cffd7c81eb.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_0/6f500b338216e9d0154de2e207da7b44.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/7d85df7cdfbd6225dd78a691f513cdd8.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/f5df04f76f470458e9a64a11a2f2e404.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_1/47dd2e0048c32abd69ff6d3999796dc0.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_1/3aeeaed393442eb08da6fae7344cbd1e.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_1/6aac14ce6242c1ff8e6e8eaa34e2028b.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/96f000d235f1ed01e1fd33ec0884d8ad.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_0/aebdfcafab9cefce933ef549f535d012.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/d5179cfbabfd88a29ea53623accf881c.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_1/822bfae4307616b2873631f8475e5830.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/bea75d063a59b4868df479ed667f9698.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/fc85c61d14dd56a6dc9291662c06ea96.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/fb96c50e51b7fa7089501194fc3c98be.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/611b42e197ebba2e7bab1d59b6ff4e62.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/52b6c04cb83be1dbb839fbb3015901c1.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_1/8ecededbbe7d96bc05c7f93f3ac85241.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_1/820f2496e3c7b33094084e6651c24a5c.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/3f0e6978177b1e1907e914f114495111.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/fd415ab198df96f961d5a968cafa5cfa.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/4a1e6b7b344bc34cd537d74bd6169e2e.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/ed41528929782d26f571501152cc28dd.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/981a4b0d14fcd4d82394e1e1e8e2d695.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/4b9662f06e61024bd373fccb6c373509.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/588cd5cf561bc3f32e78463d12ff85f6.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/9cd6056a454c9038202d1635ac4b690e.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/54f7784cd20df8367a7b1d75445e098a.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/bb626846714464530e176b39c1b63e17.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_1/03bfe935bd10d1c608e0139391eb8c42.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_1/a87b2967f7b99e8a51ce3e8ae99e8a10.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_2/68ed481c0dc6f0ef9be284defc773339.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/078c88bb1ac2a900b8d101b546dac4a1.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/52b17fcd03f7c497c86fa78e79825e2d.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/7d992c4f755810e9108e00318a0c3322.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/07ce01184f3a61eeae2f14f538d2545e.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_2/c2a925252a1a4f62df3e4c03c3d599b2.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/9d688247de0104fa1133c7a53d9eaffa.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_1/d9f1c3b1de35434427303b1952e31640.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_1/f995ec20615b04e8284e57d84fa859fe.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/ced9c8192dceea1c1b79c0b9dd2ba55a.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_0/04f5da8ffb916c4db36e4177a6a4f7ae.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/023344547cd3aa75bd5ea07c4aace77c.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            }
+        ]
+    },
+    "incorrect-correct": {
+        "count": 22,
+        "examples": [
+            {
+                "video_path": "test/test_3/d9cce4dc00b3f97a2165b04c5878db2f.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/c79de0c7d70e81fc7ca425b6a4babfe5.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_2/06ebccb4ab3785717bf18c216f9a0609.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_3/fea2cfa71a6ae2d759b83d80b1b87251.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/92e3c04859914266e38a5b0c1ace46d6.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 1,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/bdb785fb6329bc46800d073e6076c2b5.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/b06f4ec2fb9fd70c3132aee7dbaea7c8.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 0,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_1/85b6f957406c9c33e64ab6cd83df3f46.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 0,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_1/d1f266910a6d3ffa24bc5afabe2065b7.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_3/5edd412ac60c472c906be096cf3e65dc.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/49037e46b7c53d7688b3e0011b6f9317.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_3/011b971bba5cf25872816d14494315b9.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/b73353c3c24eba362c6c9b1b98fd2411.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_1/4d90c13c5844a9dfe1228ffb30f4eaea.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_1/ac72df316d635b9e96c350e034ff09e1.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 2,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_3/5cb25873d0a56181c9705660fe7b7c7f.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/c8a192524842ab295c28553d2a453b5b.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 1,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/79a51f622ce76559e012b2d025923cf3.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/11eec16fed8d50a841c9424ab73c98ee.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/2ff41f4df8c83688bf22b37f449cf04a.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/69ac319758d5f01f0455a6dacdfec6f9.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_1/dcf1bd4c9bb945b180a64b233ab67382.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 2,
+                "txtcls_pred": 1
+            }
+        ]
+    },
+    "correct-correct": {
+        "count": 82,
+        "examples": [
+            {
+                "video_path": "test/test_3/1125a0e61c01b3c66e47cca6973fa27b.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/f8c9028b654875172088b15f9618cfe8.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/521c19250745afce306bfb8c445d4809.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/5eb0b11800ac646449779c869cf9624c.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_3/2cf5dc655a9ed9adefe14c64f559bc0b.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/3990ee568e3e3caf199dbccc41f37ac9.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/0ce676e75a4be83fa7b7a2f1f78848a6.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_3/e53c8b9387e7523b123d5d52072a90bb.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/9ed312a998d5fe43abe1c7d6ba835a31.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/3c524fb3a4d35011cc23810f41c824f9.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/5c2b0f11e3812b51ccedb3555d8c388c.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/70bab77ac134910f6a9c42e58acc5875.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/8d8eccaa41ce82bf42a0655668d553cd.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/5fbaaf1a825bddd3d186694853e01c4b.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/641ba60d0ebb65228f32dd9d9cc56f9c.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_0/f980632322ec8f9e7320976dd1860e81.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_3/424a15776be43fb2bd799bcadc3c5a46.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/8d2e380175433031c31c058ee3f53e12.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_0/297b9f382d1cdbbb79037bf4d30fed3d.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_0/ae7b30fe82d63ed9c5af27fed352fcaf.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_3/f2fb65805ebdcade0c5660f0399c7582.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/6986d64db4e7ef6174d9d2c70f1e3f4c.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/1970159f0dadbe0f5cab56b1a7cad2cd.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_0/1456c2aa0f2bc51007e79d5b796f3400.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_0/07ff53f97bd388afe58301ef58138231.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_3/e4dd03ef525e0c226cef0c19da1e1ad6.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/87b2484b76020d3a166576f000f452ae.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/fc7ca47702b7388fd7727e0262da6300.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/7935da886a96503211fe3cffa812ceb8.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/efc37225e16c5c0b46a97a622a51b6b2.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/2dce8d928bc0eb561bcb546781a4b884.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/bef4a6543800590db491d6bcd628026c.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/6eca449b8f1ff51f847dcdad95005bb2.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/e5b423f803f7442a393fe1739555ff37.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/0b5a3256c80bd7f0b3936b608aad0a69.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/c809dc5518b70180d18ed12b2ec58e09.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/72272eaad879fc742b6ecc04d8016776.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/c31ac889add7325d876c2415de3e6200.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/4331147ed50a17051ca215898872b252.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/18a199197992a60b8254e1d3be45a454.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/8026ca351c44b64d1c8aa6c89e545dbb.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/c523c4cb3201fe5ede905423b7d9d9e1.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/ca4aaab6576b5374a30ff1008ca10085.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/8f438beca69a443bbcb2c27568680c3d.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/d2660a925fa95bd20f435bbc4fd67a35.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/291bfe7a6c8a2e297811da514e8b32c1.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/37e9b6cb1c0e160be98b7f5801032223.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/e0a774d985284b322578f4469a4f3353.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/f6661f885720331c8929dfa001553524.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/1237551bae2ca19f264a0941bb009932.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/465daf8b0f108c0aa81d6749b9f016ad.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_2/52bfde858a7fce87f8b5b86856d235f0.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/f3c5cea756066a391c278145a01a0d61.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_0/03c159a1b348b5ff23b344d96644ae48.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_2/04dbb41e8000c6885dcc16083fff84c5.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/8ed755c54e893aa1ffe5e2b6125b461e.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_2/11c9c291ad2c63269d09411f30810e1d.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/81145ff58b1bd6343ddc321e5d8fcd44.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_0/801bf7d6fe301195bf49b2092b3f0fd1.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_1/596e9193a9518e32681f8d7686e21067.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_0/1db9b9f6ba9fbb9c543d834a03a002c9.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_1/7600caa987e40fa17cfe5b1e49d1e775.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_1/486fde632b1842d8db7403f1d44c57c6.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_1/2bce298f4a9f4b7f44cd40e9eb80e587.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_0/76cc4a9696e3c1edcd7041b9290b668a.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_1/bf7501510a790e097c52e8cfe3b74684.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_0/f087376e226eb10cd13cbb0691ec9b7b.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_1/a0e623daea70d6e33786c450d240cb8d.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_0/6b878e3c811f6099afec1c839332fdd1.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_2/ec2c284828a0e393bafd20b4722d2c91.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/b668d038e611272b65b3fca21f394a4d.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_3/fe503f96356d294b8ed80caac89ade04.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/b9474413c72206bae83a913f8a03514e.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_3/752b4b91bdd7d16140d1bdc664c248c6.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/7551723951972c5d9cc69b34165e29c7.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/bc0a0793c1bd777c717a50477d1d6eae.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_3/c83b156a8fe69ad3852fb24f39f6a15a.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/657db0061c85c74b516a40a469743027.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_0/d58be273da7b62a68f2eb6d12d4c95d2.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_2/0d90ab95ae6906493261831fca0058a3.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/39d62b850346e50d98b20d15eaeb3c2f.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_1/16a97ca3180942a84ab3753247b3da03.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 1
+            }
+        ]
+    },
+    "correct-incorrect": {
+        "count": 22,
+        "examples": [
+            {
+                "video_path": "test/test_1/425afcb775fa96f8beb7c156a0bdf61a.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_0/c2b00f5d08f3aec41e53888b7fac7c64.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/c840c1de0864a2e07f66b5da5583007e.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/de20b01e292b802c9093b86934974d50.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_1/4f6d2a5559beafd36700900663282cf8.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 1
+            },
+            {
+                "video_path": "test/test_0/9f758b1c680a535f6bb4ae09ad520cc0.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/f12c2d70490f4f1c59f19d828dae9e5b.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/36fe97763d32fcf2c9c1d44181de7498.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_1/0759ec6d02b08d9bccd3c5777b80c9e2.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_2/e8cee666dbbd21948493608307120b28.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_3/6998ab2c37284b0d7e2982da333f11e0.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_0/e8a5e8293e9a2b2ecd0d5eed34bff4c3.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/8d941105ba6ae9c91a8cf309c3cf615e.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_2/0b516527168ff9ecd559f7a90f9f0099.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_3/b150b7c47d767ad1247e1070dc4a8842.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_0/a1f028e351c326ab90039072414f9743.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/b9f75b222bb9a7bdc7ab29f3ab754a0f.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_2/da8ff4294f53b6931282d768af8e32ad.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_1/6da41285a12113c3ea4bfcd927dcaae0.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_0/7048af67c4d722a150bcca5e2c7b56c5.mp4",
+                "gold_label": 0,
+                "clsonly_pred": 0,
+                "txtcls_pred": 2
+            },
+            {
+                "video_path": "test/test_1/6acfa609256156550a7bd084ebbcb998.mp4",
+                "gold_label": 1,
+                "clsonly_pred": 1,
+                "txtcls_pred": 0
+            },
+            {
+                "video_path": "test/test_3/2fb9f6052484dbcbbc7fcf5a00fddb57.mp4",
+                "gold_label": 2,
+                "clsonly_pred": 2,
+                "txtcls_pred": 1
+            }
+        ]
+    }
+}

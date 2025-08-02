@@ -13,8 +13,8 @@ logging.basicConfig(
     format="%(asctime)s - %(filename)s:%(lineno)d - %(funcName)s - %(levelname)s - %(message)s"
 )
 
-INPUT_PATH = "/media02/nthuy/Thesis_baselines/checkpoints/final_txtcls_txteval_0/final_txtcls_txteval_eval_log-epoch0-step760.json"
-OUTPUT_PATH = "/media02/nthuy/Thesis_baselines/checkpoints/final_txtcls_txteval_0/alignment_analysis.json"
+INPUT_PATH = "/media02/nthuy/Thesis_baselines/checkpoints/final_txtcls_txteval_1/final_txtcls_txteval_eval_log-epoch1-step1134.json"
+OUTPUT_PATH = "/media02/nthuy/Thesis_baselines/checkpoints/final_txtcls_txteval_1/alignment_analysis-epoch1-step1134.json"
 
 ALIGNMENT_PROMPT = """\
 You are an expert assistant whose mission is to **detect engagement signals** in a video description.

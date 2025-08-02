@@ -2,7 +2,7 @@
 
 JSON_PATH="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_test_gemini_rawcap.json"
 MODEL_NAME="gemini-2.0-flash-lite"
-OUTPUT_DIR="baselines/gemini/gem2.0_flashlite_test_video_3shot.json"
+OUTPUT_DIR="baselines/gemini/gem2.0_flashlite_test_video_0shot.json"
 BASE_PATH="/media02/nthuy/SnapUGC/SnapUGC_0"
 
 python baselines/gemini/gemini_video.py \

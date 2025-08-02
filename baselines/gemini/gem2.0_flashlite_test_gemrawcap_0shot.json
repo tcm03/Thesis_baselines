@@ -1,0 +1,15 @@
+{
+    "model": "gemini-2.0-flash-lite",
+    "num_samples": 3647,
+    "num_valid_samples": 3647,
+    "accuracy": 0.3712640526460104,
+    "weighted precision": 0.3333134626562966,
+    "weighted recall": 0.3712640526460104,
+    "weighted f1": 0.25872440482982045,
+    "micro precision": 0.3712640526460104,
+    "micro recall": 0.3712640526460104,
+    "micro f1": 0.3712640526460104,
+    "macro precision": 0.3328680554873072,
+    "macro recall": 0.3647374240354811,
+    "macro f1": 0.2555644068405378
+}

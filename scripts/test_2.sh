@@ -1,17 +1,19 @@
 #!/bin/bash
-PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
+# PATH_TO_FOLDERS="/media02/nthuy/SnapUGC/SnapUGC_0"
+PATH_TO_FOLDERS="/media02/nthuy/EnTube/2021"
 
 # we just care about the test paths, but the current test code use --eval_paths for convenience
-TEST_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_nano_test_engcaption_cls.json"
+# TEST_PATHS="/media02/nthuy/SnapUGC/SnapUGC_0/snapugc0_nano_test_engcaption_cls.json"
+TEST_PATHS="/media02/nthuy/EnTube/entube_2021.json"
 
-OUTPUT_DIR="./checkpoints/test_final_txtcls"
+OUTPUT_DIR="./checkpoints/entube_2021"
 
 CKPT_NAME="nothing"
-PREV_STAGE_CHECKPOINT="./checkpoints/final_txtcls/final_txtcls-epoch1-step6.pt"
+PREV_STAGE_CHECKPOINT="./checkpoints/final_clsonly_0/final_clsonly_0-epoch1-final.pt"
 MODEL_PATH="./checkpoints/longvu_llama3_2"
 VERSION="llama3"
 
-torchrun --nproc_per_node=4 --master_port=29503 models/test_2.py \
+torchrun --nproc_per_node=2 --master_port=29503 models/test_2.py \
   --output_dir $OUTPUT_DIR \
   --input_model_filename $MODEL_PATH \
   --output_model_filename $OUTPUT_DIR \
@@ -40,7 +42,7 @@ torchrun --nproc_per_node=4 --master_port=29503 models/test_2.py \
   --tune_mm_mlp_adapter True \
   --tune_lm_head True \
   --tune_cls_head True \
-  --cls_only False \
+  --cls_only True \
   --tune_embed_tokens False \
   --freeze_mm_mlp_adapter False \
   --freeze_backbone True \

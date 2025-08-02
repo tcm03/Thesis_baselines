@@ -86,7 +86,8 @@ def main(args):
     cnt_valid = 0
     for i, item in enumerate(tqdm(data)):
         desc = item["conversations"][1]["value"]
-        full_prompt = f"{fewshot_prompt}\n\nDescription: {desc}\nEngagement Label: "
+        # full_prompt = f"{fewshot_prompt}\n\nDescription: {desc}\nEngagement Label: "
+        full_prompt = f"Please classify the engagement label of the video based on its description provided below. Please output one of the three labels: 'not engaged', 'neutral', or 'engaged'. Don't output anything else.\nDescription: {desc}\nEngagement Label: "
 
         def call_gemini():
             response = client.models.generate_content(

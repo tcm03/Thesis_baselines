@@ -41,6 +41,34 @@ def count_parameters(model, print_layers = False):
         else:
             frozen_params += param_count
 
+    backbone_params = {
+        "siglip": 0,
+        "dinov2": 0,
+        "sva": 0,
+        "projection": 0,
+        "llm": 0
+    }
+    for name, param in model.named_parameters():
+        if "vision_tower_aux_list.0" in name:
+            # SigLIP
+            backbone_params["siglip"] += param.numel()
+        if "vision_tower_aux_list.1" in name:
+            # DINOv2
+            backbone_params["dinov2"] += param.numel()
+        if "mm_projector" in name:
+            # projection
+            backbone_params["projection"] += param.numel()
+        if "vision_sampler" in name or "vision_query" in name or "image_newline" in name:
+            # sva
+            backbone_params["sva"] += param.numel()
+        if "model.layers" in name or "model.norm" in name or "model.embed_tokens" in name or "lm_head.weight" == name:
+            # LLM
+            backbone_params["llm"] += param.numel()
+    print(f"{'Backbone Parameters':<40} {'':<15} {'':<10} {'':<15}")
+    for key, value in backbone_params.items():
+        print(f"{key:<40} {'':<15} {'':<10} {value:<15}")
+    print("="*80)
+
     # Print summary
     print("="*80)
     print(f"Frozen parameters: {frozen_params}")

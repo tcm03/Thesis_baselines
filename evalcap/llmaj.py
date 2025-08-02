@@ -7,8 +7,8 @@ import time
 from typing import List, Optional, Tuple
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-DATA_PATH = "/media02/nthuy/Thesis_baselines/checkpoints/final_txtcls_txteval_0/final_txtcls_txteval_eval_log-epoch0-step760.json"
-OUTPUT_PATH = "/media02/nthuy/Thesis_baselines/checkpoints/final_txtcls_txteval_0/final_txtcls_txteval_0_clair.json"
+DATA_PATH = "/media02/nthuy/Thesis_baselines/checkpoints/final_txtcls_txteval_1/final_txtcls_txteval_test_log-testfinal.json"
+OUTPUT_PATH = "/media02/nthuy/Thesis_baselines/checkpoints/final_txtcls_txteval_1/clair_test_log-testfinal.json"
 
 
 def evaluate_sample(client, sample) -> dict:

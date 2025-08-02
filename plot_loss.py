@@ -2,11 +2,11 @@ import json
 import os
 import matplotlib.pyplot as plt
 
-output_dir = 'images/txt_cls_2'
+output_dir = 'images/final_txt_cls'
 os.makedirs(output_dir, exist_ok=True)
 
 # Load the training log data from the JSON file
-with open('checkpoints/txt_cls_2/train_log_txt_cls_2.json', 'r') as f:
+with open('/media02/nthuy/Thesis_baselines/checkpoints/longvu_llama_snapugc0_txtcls/train_log_txtcls_3.json', 'r') as f:
     data = json.load(f)
 
 # Extract the steps, loss, gradient norm, and learning rate values

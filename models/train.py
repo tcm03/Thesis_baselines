@@ -21,7 +21,6 @@ from sklearn.metrics import accuracy_score, precision_recall_fscore_support
 # import annotation.utils (which imports decord) after torch to avoid bug
 import torch.multiprocessing as mp
 from resource_logging import measure_resource_usage, MeasureResourceUsage
-import evaluate
 
 from models.hf_arguments import *
 from backbones.language_models.cambrian_llama import CambrianLlamaForCausalLM, CambrianLlamaForSequenceClassification
@@ -234,8 +233,10 @@ def train():
     )
     tokenizer.pad_token = "<|reserved_special_token_0|>"
     tokenizer.pad_token_id = 128002
-    model.config.pad_token_id = tokenizer.pad_token_id # prevent warning "Setting pad_token_id to eos_token_id:128001 for open-end generation." during generating
-    model.generation_config.pad_token_id = tokenizer.pad_token_id  # future-proof
+    if model.config is not None:
+        model.config.pad_token_id = tokenizer.pad_token_id # prevent warning "Setting pad_token_id to eos_token_id:128001 for open-end generation." during generating
+    if model.generation_config is not None:
+        model.generation_config.pad_token_id = tokenizer.pad_token_id  # future-proof
     conversation_lib.default_conversation = conversation_lib.conv_templates[
         model_args.version
     ]
@@ -393,23 +394,24 @@ def train():
         if dist.is_initialized():
             dist.barrier() # wait for all processes to finish loading
         log_rank0(f"Checkpoint loaded from {training_args.resume_from_checkpoint}")
-        world_size = ckpt["world_size"]
-        assert world_size == ddp_world_size, f"World size mismatch: ckpt world size = {world_size} != current world size = {ddp_world_size}"
-        ckpt_gradient_accumulation_steps = ckpt["gradient_accumulation_steps"]
-        assert gradient_accumulation_steps == ckpt_gradient_accumulation_steps, f"Gradient accumulation steps mismatch: ckpt gradient accumulation steps = {ckpt_gradient_accumulation_steps} != current gradient accumulation steps = {gradient_accumulation_steps}"
-        ckpt_per_device_train_batch_size = ckpt["per_device_train_batch_size"]
-        assert training_args.per_device_train_batch_size == ckpt_per_device_train_batch_size, f"Per-device train batch size mismatch: ckpt per-device train batch size = {ckpt_per_device_train_batch_size} != current per-device train batch size = {training_args.per_device_train_batch_size}"
-        ckpt_rank = ckpt["rank"]
-        assert ckpt_rank == ddp_rank, f"Rank mismatch: ckpt rank = {ckpt_rank} != current rank = {ddp_rank}"
+        # [2025-07-20] @tcm: When I don't load checkpoint for training resumption, we don't need these
+        # world_size = ckpt["world_size"]
+        # assert world_size == ddp_world_size, f"World size mismatch: ckpt world size = {world_size} != current world size = {ddp_world_size}"
+        # ckpt_gradient_accumulation_steps = ckpt["gradient_accumulation_steps"]
+        # assert gradient_accumulation_steps == ckpt_gradient_accumulation_steps, f"Gradient accumulation steps mismatch: ckpt gradient accumulation steps = {ckpt_gradient_accumulation_steps} != current gradient accumulation steps = {gradient_accumulation_steps}"
+        # ckpt_per_device_train_batch_size = ckpt["per_device_train_batch_size"]
+        # assert training_args.per_device_train_batch_size == ckpt_per_device_train_batch_size, f"Per-device train batch size mismatch: ckpt per-device train batch size = {ckpt_per_device_train_batch_size} != current per-device train batch size = {training_args.per_device_train_batch_size}"
+        # ckpt_rank = ckpt["rank"]
+        # assert ckpt_rank == ddp_rank, f"Rank mismatch: ckpt rank = {ckpt_rank} != current rank = {ddp_rank}"
 
-        optimizer = ckpt["optimizer"]
-        scheduler = ckpt["scheduler"]
-        last_epoch = ckpt["last_epoch"]
-        batch_in_last_epoch = ckpt["batch_in_last_epoch"]
-        global_steps = ckpt["global_steps"]
-        num_warmup_steps = ckpt["num_warmup_steps"]
-        num_training_steps = ckpt["num_training_steps"]
-        epoch_seed = ckpt["epoch_seed"]
+        # optimizer = ckpt["optimizer"]
+        # scheduler = ckpt["scheduler"]
+        # last_epoch = ckpt["last_epoch"]
+        # batch_in_last_epoch = ckpt["batch_in_last_epoch"]
+        # global_steps = ckpt["global_steps"]
+        # num_warmup_steps = ckpt["num_warmup_steps"]
+        # num_training_steps = ckpt["num_training_steps"]
+        # epoch_seed = ckpt["epoch_seed"]
     else:
         generator.manual_seed(GLOBAL_SEED)
     # log_rank0(f"[DBG] after _load / manual_seed  : gen={gen_hex(generator)}")
@@ -497,11 +499,6 @@ def train():
     train_logs: List[TrainProgressLog] = []
     train_perf: List[PerfMetrics] = []
     eval_perf: List[PerfMetrics] = []
-    if training_args.generation_eval:
-        bleu = evaluate.load("bleu")
-        rouge = evaluate.load("rouge")
-        meteor = evaluate.load("meteor")
-        bertscore = evaluate.load("bertscore")
 
     log_rank0("Starting training")
     for epoch in range(from_epoch, num_epochs):
@@ -638,7 +635,7 @@ def train():
                                 cls_loss_weight=training_args.cls_loss_weight,
                                 gen_config_dict={
                                     "do_sample": False,
-                                    "max_new_tokens": 192,
+                                    "max_new_tokens": 512,
                                     "num_beams": 1,
                                     "use_cache": True,
                                 } if training_args.generation_eval else None
@@ -792,7 +789,7 @@ def train():
                 cls_loss_weight=training_args.cls_loss_weight,
                 gen_config_dict={
                     "do_sample": False,
-                    "max_new_tokens": 192,
+                    "max_new_tokens": 512,
                     "num_beams": 1,
                     "use_cache": True,
                 } if training_args.generation_eval else None

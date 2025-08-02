@@ -273,7 +273,8 @@ def main(args):
     with ThreadPoolExecutor(max_workers=max_workers) as ex:
         # Submit all tasks
         futures = {
-            ex.submit(process_item, item, args, client, full_prompt, FewshotVideos, engagement_mappings): item
+            # ex.submit(process_item, item, args, client, full_prompt, FewshotVideos, engagement_mappings): item
+            ex.submit(process_item, item, args, client, full_prompt, None, engagement_mappings): item
             for item in data
         }
 
